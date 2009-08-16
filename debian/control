@@ -1,0 +1,19 @@
+Section: sound
+Maintainer: Alexander V. Nikolaev <avn@daemon.hole.ru>
+Build-Depends: debhelper (>= 7), automake, libtool
+Priority: optional
+Standards-Version: 3.8.0
+Source: libmpdclient
+
+Package: libmpdclient0
+Priority: optional
+Architecture: any
+Depends: ${shlibs:Depends}
+Description: Simple client library for MPD
+
+Package: libmpdclient-dev
+Section: libdevel
+Priority: optional
+Architecture: any
+Depends: libmpdclient0 (= ${binary:Version})
+Description: Simple client library for MPD -- development files
