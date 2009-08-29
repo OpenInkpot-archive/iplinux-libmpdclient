@@ -56,6 +56,7 @@ enum mpd_state {
 #define MPD_STATUS_NO_VOLUME		-1
 
 struct mpd_connection;
+struct mpd_pair;
 
 /* struct mpd_status
  * holds info about MPD status
@@ -66,14 +67,33 @@ struct mpd_status;
 extern "C" {
 #endif
 
-/* mpd_get_status
- * returns status info, be sure to free it with mpd_status_free()
- * call this after mpd_send_status()
+/**
+ * Creates a new empty #mpd_status object.  Free it with
+ * mpd_status_free().
+ *
+ * @return the newly allocated #mpd_status object, or NULL if out of
+ * memory
  */
-struct mpd_status * mpd_get_status(struct mpd_connection * connection);
+struct mpd_status *
+mpd_status_new(void);
 
-/* mpd_status_free
- * free's status info malloc'd and returned by mpd_get_status
+/**
+ * Parses the pair, adding its information to the specified
+ * #mpd_status object.
+ */
+void
+mpd_status_feed(struct mpd_status *status, const struct mpd_pair *pair);
+
+/**
+ * Receives a #mpd_status object from the server.
+ *
+ * @return the received #mpd_status object, or NULL on error
+ */
+struct mpd_status *
+mpd_recv_status(struct mpd_connection *connection);
+
+/**
+ * Releases a #mpd_status object.
  */
 void mpd_status_free(struct mpd_status * status);
 

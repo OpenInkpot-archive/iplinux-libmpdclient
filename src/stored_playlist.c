@@ -31,6 +31,8 @@
 */
 
 #include <mpd/stored_playlist.h>
+#include <mpd/pair.h>
+#include "iso8601.h"
 
 #include <assert.h>
 #include <stdlib.h>
@@ -38,6 +40,12 @@
 
 struct mpd_stored_playlist {
 	char *path;
+
+	/**
+	 * The POSIX UTC time stamp of the last modification, or 0 if
+	 * that is unknown.
+	 */
+	time_t last_modified;
 };
 
 struct mpd_stored_playlist *
@@ -90,4 +98,50 @@ mpd_stored_playlist_get_path(const struct mpd_stored_playlist *playlist)
 	assert(playlist != NULL);
 
 	return playlist->path;
+}
+
+time_t
+mpd_stored_playlist_get_last_modified(const struct mpd_stored_playlist *playlist)
+{
+	return playlist->last_modified;
+}
+
+void
+mpd_stored_playlist_set_last_modified(struct mpd_stored_playlist *playlist,
+				      time_t mtime)
+{
+	playlist->last_modified = mtime;
+}
+
+struct mpd_stored_playlist *
+mpd_stored_playlist_begin(const struct mpd_pair *pair)
+{
+	assert(pair != NULL);
+	assert(pair->name != NULL);
+	assert(pair->value != NULL);
+
+	if (strcmp(pair->name, "playlist") != 0)
+		return NULL;
+
+	return mpd_stored_playlist_new(pair->value);
+}
+
+bool
+mpd_stored_playlist_feed(struct mpd_stored_playlist *stored_playlist,
+			 const struct mpd_pair *pair)
+{
+	assert(pair != NULL);
+	assert(pair->name != NULL);
+	assert(pair->value != NULL);
+
+	if (strcmp(pair->name, "playlist") == 0)
+		return false;
+
+	if (strcmp(pair->name, "Last-Modified") == 0)
+		stored_playlist->last_modified =
+			iso8601_datetime_parse(pair->value);
+
+	(void)stored_playlist;
+
+	return true;
 }

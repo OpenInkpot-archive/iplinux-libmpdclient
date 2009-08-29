@@ -36,10 +36,14 @@
 #include <mpd/tag.h>
 
 #include <stdbool.h>
+#include <time.h>
 
 #define MPD_SONG_NO_TIME	-1
 #define MPD_SONG_NO_NUM		-1
 #define MPD_SONG_NO_ID		-1
+
+struct mpd_pair;
+struct mpd_connection;
 
 /**
  * An opaque representation for a song in MPD's database or playlist.
@@ -128,6 +132,19 @@ int
 mpd_song_get_time(const struct mpd_song *song);
 
 /**
+ * Sets the POSIX UTC time stamp of the last modification.
+ */
+void
+mpd_song_set_last_modified(struct mpd_song *song, time_t mtime);
+
+/**
+ * @return the POSIX UTC time stamp of the last modification, or 0 if
+ * that is unknown
+ */
+time_t
+mpd_song_get_last_modified(const struct mpd_song *song);
+
+/**
  * Sets the position within the playlist.  This value is not used for
  * songs which are not in the playlist.
  */
@@ -154,6 +171,36 @@ mpd_song_set_id(struct mpd_song *song, int id);
  */
 int
 mpd_song_get_id(const struct mpd_song *song);
+
+/**
+ * Begins parsing a new song.
+ *
+ * @param pair the first pair in this song (name must be "file")
+ * @return the new #mpd_entity object, or NULL on error (out of
+ * memory, or pair name is not "file")
+ */
+struct mpd_song *
+mpd_song_begin(const struct mpd_pair *pair);
+
+/**
+ * Parses the pair, adding its information to the specified
+ * #mpd_song object.
+ *
+ * @return true if the pair was parsed and added to the song (or if
+ * the pair was not understood and ignored), false if this pair is the
+ * beginning of the next song
+ */
+bool
+mpd_song_feed(struct mpd_song *song, const struct mpd_pair *pair);
+
+/**
+ * Receives the next song from the MPD server.
+ *
+ * @return a #mpd_song object, or NULL on error or if the song list is
+ * finished
+ */
+struct mpd_song *
+mpd_recv_song(struct mpd_connection *connection);
 
 #ifdef __cplusplus
 }

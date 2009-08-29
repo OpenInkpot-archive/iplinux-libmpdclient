@@ -37,11 +37,10 @@
 
 struct mpd_connection;
 
-struct mpd_output {
-	unsigned id;
-	char *name;
-	bool enabled;
-};
+/**
+ * This type represents an audio output device on the MPD server.
+ */
+struct mpd_output;
 
 #ifdef __cplusplus
 extern "C" {
@@ -62,6 +61,24 @@ mpd_output_get_next(struct mpd_connection *connection);
  */
 void
 mpd_output_free(struct mpd_output *output);
+
+/**
+ * @return the id of the specified #mpd_output object
+ */
+unsigned
+mpd_output_get_id(const struct mpd_output *output);
+
+/**
+ * @return the configured name of the specified #mpd_output object
+ */
+const char *
+mpd_output_get_name(const struct mpd_output *output);
+
+/**
+ * @return true if this output is enabled
+ */
+bool
+mpd_output_get_enabled(const struct mpd_output *output);
 
 #ifdef __cplusplus
 }

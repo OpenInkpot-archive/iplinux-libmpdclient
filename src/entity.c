@@ -37,6 +37,35 @@
 #include <stdlib.h>
 #include <string.h>
 
+struct mpd_entity {
+	/**
+	 * The type of this entity.
+	 */
+	enum mpd_entity_type type;
+
+	/**
+	 * This union contains type-safe pointers to the real object.
+	 * Check the entity type before attempting to obtain the
+	 * object!
+	 */
+	union {
+		/**
+		 * Only valid if type==#MPD_ENTITY_TYPE_DIRECTORY.
+		 */
+		struct mpd_directory *directory;
+
+		/**
+		 * Only valid if type==#MPD_ENTITY_TYPE_SONG.
+		 */
+		struct mpd_song *song;
+
+		/**
+		 * Only valid if type==#MPD_ENTITY_TYPE_PLAYLISTFILE.
+		 */
+		struct mpd_stored_playlist *playlistFile;
+	} info;
+};
+
 void
 mpd_entity_free(struct mpd_entity *entity) {
 	assert(entity != NULL);
@@ -62,12 +91,47 @@ mpd_entity_free(struct mpd_entity *entity) {
 	free(entity);
 }
 
+enum mpd_entity_type
+mpd_entity_get_type(const struct mpd_entity *entity)
+{
+	assert(entity != NULL);
+
+	return entity->type;
+}
+
+const struct mpd_directory *
+mpd_entity_get_directory(const struct mpd_entity *entity)
+{
+	assert(entity != NULL);
+	assert(entity->type == MPD_ENTITY_TYPE_DIRECTORY);
+
+	return entity->info.directory;
+}
+
+const struct mpd_song *
+mpd_entity_get_song(const struct mpd_entity *entity)
+{
+	assert(entity != NULL);
+	assert(entity->type == MPD_ENTITY_TYPE_SONG);
+
+	return entity->info.song;
+}
+
+const struct mpd_stored_playlist *
+mpd_entity_get_stored_playlist(const struct mpd_entity *entity)
+{
+	assert(entity != NULL);
+	assert(entity->type == MPD_ENTITY_TYPE_PLAYLISTFILE);
+
+	return entity->info.playlistFile;
+}
+
 static bool
 mpd_entity_feed_first(struct mpd_entity *entity, const struct mpd_pair *pair)
 {
 	if (strcmp(pair->name, "file") == 0) {
 		entity->type = MPD_ENTITY_TYPE_SONG;
-		entity->info.song = mpd_song_new(pair->value);
+		entity->info.song = mpd_song_begin(pair);
 		if (entity->info.song == NULL)
 			return false;
 	} else if (strcmp(pair->name, "directory") == 0) {
@@ -107,27 +171,6 @@ mpd_entity_begin(const struct mpd_pair *pair)
 	return entity;
 }
 
-static void
-parse_song_pair(struct mpd_song *song, const char *name, const char *value)
-{
-	if (*value == 0)
-		return;
-
-	for (unsigned i = 0; i < MPD_TAG_COUNT; ++i) {
-		if (strcmp(name, mpd_tag_type_names[i]) == 0) {
-			mpd_song_add_tag(song, (enum mpd_tag_type)i, value);
-			return;
-		}
-	}
-
-	if (strcmp(name, "Time") == 0)
-		mpd_song_set_time(song, atoi(value));
-	else if (strcmp(name, "Pos") == 0)
-		mpd_song_set_pos(song, atoi(value));
-	else if (strcmp(name, "Id") == 0)
-		mpd_song_set_id(song, atoi(value));
-}
-
 bool
 mpd_entity_feed(struct mpd_entity *entity, const struct mpd_pair *pair)
 {
@@ -140,8 +183,22 @@ mpd_entity_feed(struct mpd_entity *entity, const struct mpd_pair *pair)
 	    strcmp(pair->name, "playlist") == 0)
 		return false;
 
-	if (entity->type == MPD_ENTITY_TYPE_SONG)
-		parse_song_pair(entity->info.song, pair->name, pair->value);
+	switch (entity->type) {
+	case MPD_ENTITY_TYPE_UNKNOWN:
+		break;
+
+	case MPD_ENTITY_TYPE_DIRECTORY:
+		mpd_directory_feed(entity->info.directory, pair);
+		break;
+
+	case MPD_ENTITY_TYPE_SONG:
+		mpd_song_feed(entity->info.song, pair);
+		break;
+
+	case MPD_ENTITY_TYPE_PLAYLISTFILE:
+		mpd_stored_playlist_feed(entity->info.playlistFile, pair);
+		break;
+	}
 
 	return true;
 }

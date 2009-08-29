@@ -31,10 +31,15 @@
 */
 
 #include <mpd/song.h>
+#include <mpd/pair.h>
+#include <mpd/recv.h>
 #include "str_pool.h"
+#include "internal.h"
+#include "iso8601.h"
 
 #include <assert.h>
 #include <stdlib.h>
+#include <string.h>
 
 struct mpd_tag_value {
 	struct mpd_tag_value *next;
@@ -47,6 +52,13 @@ struct mpd_song {
 
 	/* length of song in seconds, check that it is not MPD_SONG_NO_TIME  */
 	int time;
+
+	/**
+	 * The POSIX UTC time stamp of the last modification, or 0 if
+	 * that is unknown.
+	 */
+	time_t last_modified;
+
 	/* if plchanges/playlistinfo/playlistid used, is the position of the
 	 * song in the playlist */
 	int pos;
@@ -71,6 +83,7 @@ mpd_song_new(const char *uri)
 		song->tags[i].value = NULL;
 
 	song->time = MPD_SONG_NO_TIME;
+	song->last_modified = 0;
 	song->pos = MPD_SONG_NO_NUM;
 	song->id = MPD_SONG_NO_ID;
 
@@ -241,6 +254,18 @@ mpd_song_get_time(const struct mpd_song *song)
 }
 
 void
+mpd_song_set_last_modified(struct mpd_song *song, time_t mtime)
+{
+	song->last_modified = mtime;
+}
+
+time_t
+mpd_song_get_last_modified(const struct mpd_song *song)
+{
+	return song->last_modified;
+}
+
+void
 mpd_song_set_pos(struct mpd_song *song, int pos)
 {
 	song->pos = pos;
@@ -262,4 +287,84 @@ int
 mpd_song_get_id(const struct mpd_song *song)
 {
 	return song->id;
+}
+
+struct mpd_song *
+mpd_song_begin(const struct mpd_pair *pair)
+{
+	assert(pair != NULL);
+	assert(pair->name != NULL);
+	assert(pair->value != NULL);
+
+	if (strcmp(pair->name, "file") != 0)
+		return NULL;
+
+	return mpd_song_new(pair->value);
+}
+
+bool
+mpd_song_feed(struct mpd_song *song, const struct mpd_pair *pair)
+{
+	assert(pair != NULL);
+	assert(pair->name != NULL);
+	assert(pair->value != NULL);
+
+	if (strcmp(pair->name, "file") == 0)
+		return false;
+
+	if (*pair->value == 0)
+		return true;
+
+	for (unsigned i = 0; i < MPD_TAG_COUNT; ++i) {
+		if (strcmp(pair->name, mpd_tag_type_names[i]) == 0) {
+			mpd_song_add_tag(song, (enum mpd_tag_type)i, pair->value);
+			return true;
+		}
+	}
+
+	if (strcmp(pair->name, "Time") == 0)
+		mpd_song_set_time(song, atoi(pair->value));
+	else if (strcmp(pair->name, "Last-Modified") == 0)
+		mpd_song_set_last_modified(song, iso8601_datetime_parse(pair->value));
+	else if (strcmp(pair->name, "Pos") == 0)
+		mpd_song_set_pos(song, atoi(pair->value));
+	else if (strcmp(pair->name, "Id") == 0)
+		mpd_song_set_id(song, atoi(pair->value));
+
+	return true;
+}
+
+struct mpd_song *
+mpd_recv_song(struct mpd_connection *connection)
+{
+	struct mpd_pair *pair;
+	struct mpd_song *song;
+
+	if (mpd_error_is_defined(&connection->error))
+		return NULL;
+
+	pair = mpd_recv_pair_named(connection, "file");
+	if (pair == NULL)
+		return NULL;
+
+	song = mpd_song_begin(pair);
+	mpd_return_pair(connection, pair);
+	if (song == NULL) {
+		mpd_error_code(&connection->error, MPD_ERROR_OOM);
+		return NULL;
+	}
+
+	while ((pair = mpd_recv_pair(connection)) != NULL &&
+	       mpd_song_feed(song, pair))
+		mpd_return_pair(connection, pair);
+
+	if (mpd_error_is_defined(&connection->error)) {
+		mpd_song_free(song);
+		return NULL;
+	}
+
+	/* unread this pair for the next mpd_recv_song() call */
+	mpd_enqueue_pair(connection, pair);
+
+	return song;
 }

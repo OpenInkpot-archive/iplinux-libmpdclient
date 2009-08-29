@@ -26,34 +26,31 @@
    SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-#ifndef MPD_RUN_H
-#define MPD_RUN_H
+#ifndef MPD_ISO8601_H
+#define MPD_ISO8601_H
 
-struct mpd_connection;
-
-#ifdef __cplusplus
-extern "C" {
-#endif
+#include <stdbool.h>
+#include <time.h>
 
 /**
- * Executes the "addid" command and reads the response.
+ * Parses an ISO8601 time stamp to a #time_t POSIX UTC time stamp.
  *
- * @return the new song id, -1 on error or if MPD did not send an id
+ * @param input the ISO8601 time stamp in the form
+ * "YYYY-MM-DDTHH:MM:SS"; it is silently assumed that the time zone is
+ * UTC ("Z")
+ * @return the POSIX UTC time stamp, or 0 on error
  */
-int
-mpd_run_addid(struct mpd_connection *connection, const char *file);
+time_t
+iso8601_datetime_parse(const char *input);
 
 /**
- * Executes the "status" command and reads the response.
+ * Formats a POSIX UTC time stamp into an ISO8601 string.
  *
- * @return the #mpd_status object returned by the server, or NULL on
- * error
+ * @param buffer the destination string buffer
+ * @param size the size of the buffer, including the null terminator
+ * @return true on success, false on failure
  */
-struct mpd_status *
-mpd_run_status(struct mpd_connection *connection);
-
-#ifdef __cplusplus
-}
-#endif
+bool
+iso8601_datetime_format(char *buffer, size_t size, time_t t);
 
 #endif

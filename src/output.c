@@ -40,6 +40,12 @@
 #include <string.h>
 #include <stdlib.h>
 
+struct mpd_output {
+	unsigned id;
+	char *name;
+	bool enabled;
+};
+
 struct mpd_output *
 mpd_output_get_next(struct mpd_connection *connection)
 {
@@ -61,6 +67,8 @@ mpd_output_get_next(struct mpd_connection *connection)
 	}
 
 	output->id = atoi(pair->value);
+	mpd_return_pair(connection, pair);
+
 	output->name = NULL;
 	output->enabled = false;
 
@@ -79,6 +87,8 @@ mpd_output_get_next(struct mpd_connection *connection)
 	}
 
 	if (mpd_error_is_defined(&connection->error)) {
+		assert(pair == NULL);
+
 		if (output->name != NULL)
 			free(output->name);
 		free(output);
@@ -86,6 +96,9 @@ mpd_output_get_next(struct mpd_connection *connection)
 	}
 
 	if (output->name == NULL) {
+		if (pair != NULL)
+			mpd_return_pair(connection, pair);
+
 		free(output);
 		mpd_error_code(&connection->error, MPD_ERROR_MALFORMED);
 		mpd_error_message(&connection->error, "No output name");
@@ -104,4 +117,29 @@ mpd_output_free(struct mpd_output *output)
 
 	free(output->name);
 	free(output);
+}
+
+unsigned
+mpd_output_get_id(const struct mpd_output *output)
+{
+	assert(output != NULL);
+
+	return output->id;
+}
+
+const char *
+mpd_output_get_name(const struct mpd_output *output)
+{
+	assert(output != NULL);
+	assert(output->name != NULL);
+
+	return output->name;
+}
+
+bool
+mpd_output_get_enabled(const struct mpd_output *output)
+{
+	assert(output != NULL);
+
+	return output->enabled;
 }

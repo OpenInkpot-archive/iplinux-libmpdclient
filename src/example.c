@@ -80,14 +80,14 @@ int main(int argc, char ** argv) {
 
 	if(argc==1) {
 		struct mpd_status * status;
-		struct mpd_entity * entity;
+		struct mpd_song *song;
 
 		mpd_command_list_begin(conn, true);
 		mpd_send_status(conn);
 		mpd_send_currentsong(conn);
 		mpd_command_list_end(conn);
 
-		status = mpd_get_status(conn);
+		status = mpd_recv_status(conn);
 		if (status == NULL) {
 			fprintf(stderr,"%s\n", mpd_get_error_message(conn));
 			mpd_connection_free(conn);
@@ -120,14 +120,7 @@ int main(int argc, char ** argv) {
 
 		mpd_response_next(conn);
 
-		while ((entity = mpd_recv_entity(conn)) != NULL) {
-			struct mpd_song * song = entity->info.song;
-
-			if (entity->type != MPD_ENTITY_TYPE_SONG) {
-				mpd_entity_free(entity);
-				continue;
-			}
-
+		while ((song = mpd_recv_song(conn)) != NULL) {
 			print_tag(song, MPD_TAG_FILENAME, "file");
 			print_tag(song, MPD_TAG_ARTIST, "artist");
 			print_tag(song, MPD_TAG_ALBUM, "album");
@@ -143,7 +136,7 @@ int main(int argc, char ** argv) {
 				printf("pos: %i\n", mpd_song_get_pos(song));
 			}
 
-			mpd_entity_free(entity);
+			mpd_song_free(song);
 		}
 
 		if (mpd_get_error(conn) != MPD_ERROR_SUCCESS) {
@@ -172,26 +165,33 @@ int main(int argc, char ** argv) {
 		}
 
 		while ((entity = mpd_recv_entity(conn)) != NULL) {
-			if (entity->type == MPD_ENTITY_TYPE_SONG) {
-				struct mpd_song * song = entity->info.song;
+			const struct mpd_song *song;
+			const struct mpd_directory *dir;
+			const struct mpd_stored_playlist *pl;
 
+			switch (mpd_entity_get_type(entity)) {
+			case MPD_ENTITY_TYPE_UNKNOWN:
+				break;
+
+			case MPD_ENTITY_TYPE_SONG:
+				song = mpd_entity_get_song(entity);
 				print_tag(song, MPD_TAG_FILENAME, "file");
 				print_tag(song, MPD_TAG_ARTIST, "artist");
 				print_tag(song, MPD_TAG_ALBUM, "album");
 				print_tag(song, MPD_TAG_TITLE, "title");
 				print_tag(song, MPD_TAG_TRACK, "track");
-			}
-			else if (entity->type == MPD_ENTITY_TYPE_DIRECTORY) {
-				struct mpd_directory *dir =
-					entity->info.directory;
+				break;
+
+			case MPD_ENTITY_TYPE_DIRECTORY:
+				dir = mpd_entity_get_directory(entity);
 				printf("directory: %s\n", mpd_directory_get_path(dir));
-			}
-			else if (entity->type ==
-				 MPD_ENTITY_TYPE_PLAYLISTFILE) {
-				struct mpd_stored_playlist *pl =
-					entity->info.playlistFile;
+				break;
+
+			case MPD_ENTITY_TYPE_PLAYLISTFILE:
+				pl = mpd_entity_get_stored_playlist(entity);
 				printf("playlist: %s\n",
 				       mpd_stored_playlist_get_path(pl));
+				break;
 			}
 
 			mpd_entity_free(entity);
