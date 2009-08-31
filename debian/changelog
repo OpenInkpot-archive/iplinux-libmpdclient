@@ -1,5 +1,5 @@
-libmpdclient (1.999+2.0-20091508-1-git-9eca7d8) unstable; urgency=low
+libmpdclient (1.999+2.0-20090831-ip1) unstable; urgency=low
 
   * Initial release.
 
- -- Alexander V. Nikolaev <avn@daemon.hole.ru>  Sat, 15 Aug 2009 18:51:44 +0300
+ -- Alexander V. Nikolaev <avn@daemon.hole.ru>  Mon, 31 Aug 2009 12:34:44 +0300
