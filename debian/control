@@ -1,4 +1,3 @@
-Section: core
 Maintainer: Alexander V. Nikolaev <avn@daemon.hole.ru>
 Build-Depends: debhelper (>= 7), automake, libtool
 XCS-Cross-Host-Build-Depends: debhelper (>= 7), cdbs, cdbs-embedded, automake, libtool, autoconf
@@ -14,7 +13,6 @@ Depends: ${shlibs:Depends}
 Description: Simple client library for MPD
 
 Package: libmpdclient-dev
-Section: libdevel
 Priority: optional
 Section: core
 Architecture: any
