@@ -32,7 +32,7 @@
 
 #include <mpd/output.h>
 #include <mpd/connection.h>
-#include <mpd/pair.h>
+#include <mpd/send.h>
 #include <mpd/recv.h>
 #include "internal.h"
 
@@ -46,14 +46,17 @@ struct mpd_output {
 	bool enabled;
 };
 
+bool
+mpd_send_outputs(struct mpd_connection *connection)
+{
+	return mpd_send_command(connection, "outputs", NULL);
+}
+
 struct mpd_output *
-mpd_output_get_next(struct mpd_connection *connection)
+mpd_recv_output(struct mpd_connection *connection)
 {
 	struct mpd_output *output = NULL;
 	struct mpd_pair *pair;
-
-	if (mpd_error_is_defined(&connection->error))
-		return NULL;
 
 	pair = mpd_recv_pair_named(connection, "outputid");
 	if (pair == NULL)

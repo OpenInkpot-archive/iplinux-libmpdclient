@@ -38,6 +38,8 @@
 struct mpd_connection;
 
 /**
+ * \struct mpd_output
+ *
  * This type represents an audio output device on the MPD server.
  */
 struct mpd_output;
@@ -47,6 +49,16 @@ extern "C" {
 #endif
 
 /**
+ * Sends the "outputs" command to MPD.  Call mpd_output_get_next() to
+ * read the response.
+ *
+ * @param connection A valid and connected mpd_connection.
+ * @return true on success
+ */
+bool
+mpd_send_outputs(struct mpd_connection *connection);
+
+/**
  * Reads the next mpd_output from the MPD response.  Free the return
  * value with mpd_output_free().
  *
@@ -54,7 +66,7 @@ extern "C" {
  * end-of-response
  */
 struct mpd_output *
-mpd_output_get_next(struct mpd_connection *connection);
+mpd_recv_output(struct mpd_connection *connection);
 
 /**
  * Frees a mpd_output object returned from mpd_output_get_next().
