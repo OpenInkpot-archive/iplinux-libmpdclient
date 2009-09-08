@@ -2,6 +2,7 @@ Maintainer: Alexander V. Nikolaev <avn@daemon.hole.ru>
 Build-Depends: debhelper (>= 7), automake, libtool
 XCS-Cross-Host-Build-Depends: debhelper (>= 7), cdbs, cdbs-embedded, automake, libtool, autoconf
 Priority: optional
+Section: core
 Standards-Version: 3.8.0
 Source: libmpdclient
 
