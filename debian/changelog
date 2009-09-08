@@ -1,3 +1,9 @@
+libmpdclient (1.999+2.0-20090909-ip2) unstable; urgency=low
+
+  * Update to new snapshot
+
+ -- Alexander V. Nikolaev <avn@daemon.hole.ru>  Wed, 09 Sep 2009 00:03:37 +0300
+
 libmpdclient (1.999+2.0-20090831-ip1) unstable; urgency=low
 
   * Initial release.
