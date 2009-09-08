@@ -18,3 +18,10 @@ Section: core
 Architecture: any
 Depends: libmpdclient0 (= ${binary:Version})
 Description: Simple client library for MPD -- development files
+
+Package: libmpdclient0-dbg
+Priority: optional
+Section: core
+Architecture: any
+Depends: libmpdclient0 (= ${binary:Version})
+Description: Simple client library for MPD -- debug symbols
