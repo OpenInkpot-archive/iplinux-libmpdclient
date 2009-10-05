@@ -42,6 +42,7 @@
 #define MPD_ASYNC_H
 
 #include <mpd/error.h>
+#include <mpd/compiler.h>
 
 #include <stdbool.h>
 #include <stdarg.h>
@@ -49,7 +50,7 @@
 /**
  * Event bit mask for polling.
  */
-enum mpd_async_events {
+enum mpd_async_event {
 	/** ready to read from the file descriptor */
 	MPD_ASYNC_EVENT_READ = 1,
 
@@ -82,6 +83,7 @@ extern "C" {
  * @param fd the socket file descriptor of the stream connection to MPD
  * @return a mpd_async object, or NULL on out of memory
  */
+mpd_malloc
 struct mpd_async *
 mpd_async_new(int fd);
 
@@ -92,17 +94,10 @@ void
 mpd_async_free(struct mpd_async *async);
 
 /**
- * Determines whether this #mpd_async object is still connected and
- * valid.  If not, you may use mpd_async_get_error() and
- * mpd_async_get_error_message() to inspect the cause.
+ * After an error has occurred, this function returns the error code.
+ * If no error has occurred, it returns #MPD_ERROR_SUCCESS.
  */
-bool
-mpd_async_is_alive(const struct mpd_async *async);
-
-/**
- * If mpd_async_is_alive() returns false, this function returns the
- * error code which caused this.
- */
+mpd_pure
 enum mpd_error
 mpd_async_get_error(const struct mpd_async *async);
 
@@ -111,9 +106,26 @@ mpd_async_get_error(const struct mpd_async *async);
  * human readable error message which caused this.  This message is
  * optional, and may be NULL.  The pointer is invalidated by
  * mpd_async_free().
+ *
+ * For #MPD_ERROR_SERVER, the error message is encoded in UTF-8.
+ * #MPD_ERROR_SYSTEM obtains its error message from the operating
+ * system, and thus the locale's character set (and probably language)
+ * is used.  Keep that in mind when you print error messages.
  */
+mpd_pure
 const char *
 mpd_async_get_error_message(const struct mpd_async *async);
+
+/**
+ * Returns the error code from the operating system; on most operating
+ * systems, this is the errno value.  Calling this function is only
+ * valid if mpd_async_get_error() returned #MPD_ERROR_SYSTEM.
+ *
+ * May be 0 if the operating system did not specify an error code.
+ */
+mpd_pure
+int
+mpd_async_get_system_error(const struct mpd_async *async);
 
 /**
  * Returns the file descriptor which should be polled by the caller.
@@ -121,13 +133,15 @@ mpd_async_get_error_message(const struct mpd_async *async);
  * file descriptor never changes during the lifetime of this
  * #mpd_async object.
  */
+mpd_pure
 int
-mpd_async_fd(const struct mpd_async *async);
+mpd_async_get_fd(const struct mpd_async *async);
 
 /**
  * Returns a bit mask of events which should be polled for.
  */
-enum mpd_async_events
+mpd_pure
+enum mpd_async_event
 mpd_async_events(const struct mpd_async *async);
 
 /**
@@ -138,7 +152,7 @@ mpd_async_events(const struct mpd_async *async);
  * @return false if the connection was closed due to an error
  */
 bool
-mpd_async_io(struct mpd_async *async, enum mpd_async_events events);
+mpd_async_io(struct mpd_async *async, enum mpd_async_event events);
 
 /**
  * Appends a command to the output buffer.
@@ -161,6 +175,7 @@ mpd_async_send_command_v(struct mpd_async *async, const char *command,
  * NULL
  * @return true on success, false if the buffer is full
  */
+mpd_sentinel
 bool
 mpd_async_send_command(struct mpd_async *async, const char *command, ...);
 
@@ -172,6 +187,7 @@ mpd_async_send_command(struct mpd_async *async, const char *command, ...);
  * @param async the connection
  * @return a line on success, NULL otherwise
  */
+mpd_malloc
 char *
 mpd_async_recv_line(struct mpd_async *async);
 

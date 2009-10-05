@@ -31,6 +31,7 @@
 
 #include <mpd/error.h>
 #include <mpd/protocol.h>
+#include <mpd/compiler.h>
 
 #include <assert.h>
 #include <stdbool.h>
@@ -49,15 +50,20 @@ struct mpd_error_info {
 
 	/**
 	 * An ACK code returned by MPD.  This field is only valid if
-	 * #code is MPD_ERROR_ACK.
+	 * #code is MPD_ERROR_SERVER.
 	 */
-	enum mpd_ack ack;
+	enum mpd_server_error server;
 
 	/**
 	 * The command list index of the command which emitted this
 	 * error.  Zero if no command list was used.
 	 */
 	int at;
+
+	/**
+	 * The operating system's error code (i.e. errno).
+	 */
+	int system;
 
 	/**
 	 * Human readable error message; may be NULL if not available.
@@ -96,7 +102,7 @@ mpd_error_clear(struct mpd_error_info *error)
 }
 
 /**
- * Returns true if an error has occured.
+ * Returns true if an error has occurred.
  */
 static inline bool
 mpd_error_is_defined(const struct mpd_error_info *error)
@@ -111,9 +117,22 @@ static inline bool
 mpd_error_is_fatal(const struct mpd_error_info *error)
 {
 	return error->code != MPD_ERROR_SUCCESS &&
-		error->code != MPD_ERROR_ARG &&
+		error->code != MPD_ERROR_ARGUMENT &&
 		error->code != MPD_ERROR_STATE &&
-		error->code != MPD_ERROR_ACK;
+		error->code != MPD_ERROR_SERVER;
+}
+
+static inline const char *
+mpd_error_get_message(const struct mpd_error_info *error)
+{
+	assert(error != NULL);
+	assert(error->code != MPD_ERROR_SUCCESS);
+	assert(error->message != NULL || error->code == MPD_ERROR_OOM);
+
+	if (error->message == NULL)
+		return "Out of memory";
+
+	return error->message;
 }
 
 /**
@@ -132,11 +151,22 @@ mpd_error_code(struct mpd_error_info *error, enum mpd_error code)
  * Sets an ACK error code.
  */
 static inline void
-mpd_error_ack(struct mpd_error_info *error, enum mpd_ack ack, int at)
+mpd_error_server(struct mpd_error_info *error,
+		 enum mpd_server_error server, int at)
 {
-	mpd_error_code(error, MPD_ERROR_ACK);
-	error->ack = ack;
+	mpd_error_code(error, MPD_ERROR_SERVER);
+	error->server = server;
 	error->at = at;
+}
+
+/**
+ * Sets an system error code.
+ */
+static inline void
+mpd_error_system(struct mpd_error_info *error, int system)
+{
+	mpd_error_code(error, MPD_ERROR_SYSTEM);
+	error->system = system;
 }
 
 /**
@@ -158,6 +188,7 @@ mpd_error_message_n(struct mpd_error_info *error,
  * Sets an error message (printf() like format).  Prior to that, an
  * error code must have been set.
  */
+mpd_printf(2, 3)
 void
 mpd_error_printf(struct mpd_error_info *error, const char *fmt, ...);
 
@@ -166,5 +197,16 @@ mpd_error_printf(struct mpd_error_info *error, const char *fmt, ...);
  */
 void
 mpd_error_errno(struct mpd_error_info *error);
+
+/**
+ * Copies a #mpd_error_info onto another one.  Duplicates the error
+ * message.
+ *
+ * @return true if there was no error in #src, false if an error
+ * condition is stored in #src (in both cases, the information is
+ * copied)
+ */
+bool
+mpd_error_copy(struct mpd_error_info *dest, const struct mpd_error_info *src);
 
 #endif

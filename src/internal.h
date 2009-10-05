@@ -33,7 +33,7 @@
 
 #include "ierror.h"
 
-#include <sys/select.h>
+#include <sys/time.h>
 
 /**
  * This opaque object represents a connection to a MPD server.  Call
@@ -46,7 +46,7 @@ struct mpd_connection {
 	unsigned version[3];
 
 	/**
-	 * The last error which occured.  This attribute must be
+	 * The last error which occurred.  This attribute must be
 	 * cleared with mpd_clear_error() before another command may
 	 * be executed.
 	 */
@@ -141,20 +141,19 @@ struct mpd_connection {
 	char *request;
 };
 
-extern const char *const mpd_tag_type_names[];
-
 /**
  * Copies the error state from connection->sync to connection->error.
  */
 void
 mpd_connection_sync_error(struct mpd_connection *connection);
 
-/**
- * Sends a command without arguments to the server, but does not
- * update the "receiving" flag nor the "listOks" counter.  This is
- * used internally by the command_list functions.
- */
-bool
-mpd_send_command2(struct mpd_connection *connection, const char *command);
+static inline const struct timeval *
+mpd_connection_timeout(const struct mpd_connection *connection)
+{
+	return connection->timeout.tv_sec != 0 ||
+		connection->timeout.tv_usec != 0
+		? &connection->timeout
+		: NULL;
+}
 
 #endif

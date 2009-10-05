@@ -31,10 +31,7 @@
 */
 
 #include <mpd/output.h>
-#include <mpd/connection.h>
-#include <mpd/send.h>
-#include <mpd/recv.h>
-#include "internal.h"
+#include <mpd/pair.h>
 
 #include <assert.h>
 #include <string.h>
@@ -46,79 +43,52 @@ struct mpd_output {
 	bool enabled;
 };
 
-bool
-mpd_send_outputs(struct mpd_connection *connection)
-{
-	return mpd_send_command(connection, "outputs", NULL);
-}
-
 struct mpd_output *
-mpd_recv_output(struct mpd_connection *connection)
+mpd_output_begin(const struct mpd_pair *pair)
 {
-	struct mpd_output *output = NULL;
-	struct mpd_pair *pair;
+	struct mpd_output *output;
 
-	pair = mpd_recv_pair_named(connection, "outputid");
-	if (pair == NULL)
+	assert(pair != NULL);
+
+	if (strcmp(pair->name, "outputid") != 0)
 		return NULL;
 
 	output = malloc(sizeof(*output));
-	if (output == NULL) {
-		mpd_return_pair(connection, pair);
-		mpd_error_code(&connection->error, MPD_ERROR_OOM);
+	if (output == NULL)
 		return NULL;
-	}
 
 	output->id = atoi(pair->value);
-	mpd_return_pair(connection, pair);
 
 	output->name = NULL;
 	output->enabled = false;
 
-	while ((pair = mpd_recv_pair(connection)) != NULL) {
-		if (strcmp(pair->name, "outputid") == 0) {
-			break;
-		}
-		else if (strcmp(pair->name, "outputname") == 0) {
-			output->name = strdup(pair->value);
-		}
-		else if (strcmp(pair->name, "outputenabled") == 0) {
-			output->enabled = atoi(pair->value) != 0;
-		}
+	return output;
+}
 
-		mpd_return_pair(connection, pair);
-	}
+bool
+mpd_output_feed(struct mpd_output *output, const struct mpd_pair *pair)
+{
+	if (strcmp(pair->name, "outputid") == 0)
+		return false;
 
-	if (mpd_error_is_defined(&connection->error)) {
-		assert(pair == NULL);
-
+	if (strcmp(pair->name, "outputname") == 0) {
 		if (output->name != NULL)
 			free(output->name);
-		free(output);
-		return NULL;
-	}
 
-	if (output->name == NULL) {
-		if (pair != NULL)
-			mpd_return_pair(connection, pair);
+		output->name = strdup(pair->value);
+	} else if (strcmp(pair->name, "outputenabled") == 0)
+		output->enabled = atoi(pair->value) != 0;
 
-		free(output);
-		mpd_error_code(&connection->error, MPD_ERROR_MALFORMED);
-		mpd_error_message(&connection->error, "No output name");
-		return NULL;
-	}
-
-	mpd_enqueue_pair(connection, pair);
-	return output;
+	return true;
 }
 
 void
 mpd_output_free(struct mpd_output *output)
 {
 	assert(output != NULL);
-	assert(output->name != NULL);
 
-	free(output->name);
+	if (output->name != NULL)
+		free(output->name);
 	free(output);
 }
 
@@ -134,7 +104,6 @@ const char *
 mpd_output_get_name(const struct mpd_output *output)
 {
 	assert(output != NULL);
-	assert(output->name != NULL);
 
 	return output->name;
 }

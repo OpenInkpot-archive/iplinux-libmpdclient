@@ -26,13 +26,40 @@
    SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-#ifndef STR_POOL_H
-#define STR_POOL_H
+#include <mpd/directory.h>
+#include <mpd/recv.h>
+#include "internal.h"
 
-char *str_pool_get(const char *value);
+struct mpd_directory *
+mpd_recv_directory(struct mpd_connection *connection)
+{
+	struct mpd_pair *pair;
+	struct mpd_directory *directory;
 
-char *str_pool_dup(char *value);
+	pair = mpd_recv_pair_named(connection, "directory");
+	if (pair == NULL)
+		return NULL;
 
-void str_pool_put(char *value);
+	directory = mpd_directory_begin(pair);
+	mpd_return_pair(connection, pair);
+	if (directory == NULL) {
+		mpd_error_code(&connection->error, MPD_ERROR_OOM);
+		return NULL;
+	}
 
-#endif
+	while ((pair = mpd_recv_pair(connection)) != NULL &&
+	       mpd_directory_feed(directory, pair))
+		mpd_return_pair(connection, pair);
+
+	if (mpd_error_is_defined(&connection->error)) {
+		assert(pair == NULL);
+
+		mpd_directory_free(directory);
+		return NULL;
+	}
+
+	/* unread this pair for the next mpd_recv_directory() call */
+	mpd_enqueue_pair(connection, pair);
+
+	return directory;
+}

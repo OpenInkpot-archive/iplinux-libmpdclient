@@ -32,10 +32,7 @@
 
 #include <mpd/status.h>
 #include <mpd/pair.h>
-#include <mpd/send.h>
-#include <mpd/connection.h>
-#include <mpd/recv.h>
-#include "internal.h"
+#include <mpd/audio_format.h>
 
 #include <stdlib.h>
 #include <string.h>
@@ -47,7 +44,7 @@ struct mpd_status {
 	/** 0-100, or MPD_STATUS_NO_VOLUME when there is no volume support */
 	int volume;
 
-	/** Playlist repeat mode enabled? */
+	/** Queue repeat mode enabled? */
 	bool repeat;
 
 	/** Random mode enabled? */
@@ -59,58 +56,61 @@ struct mpd_status {
 	/** Song consume mode enabled? */
 	bool consume;
 
-	/** Number of songs in the playlist */
-	int playlist_length;
+	/** Number of songs in the queue */
+	unsigned queue_length;
 
-	/** playlist, use this to determine when the playlist has changed */
-	long long playlist;
+	/**
+	 * Queue version, use this to determine when the playlist has
+	 * changed.
+	 */
+	unsigned queue_version;
 
 	/** MPD's current playback state */
 	enum mpd_state state;
 
 	/** crossfade setting in seconds */
-	int crossfade;
+	unsigned crossfade;
 
 	/**
 	 * If a song is currently selected (always the case when state
 	 * is PLAY or PAUSE), this is the position of the currently
-	 * playing song in the playlist, beginning with 0.
+	 * playing song in the queue, beginning with 0.
 	 */
-	int song;
+	int song_pos;
 
 	/** Song ID of the currently selected song */
-	int songid;
+	int song_id;
 
 	/**
 	 * Time in seconds that have elapsed in the currently
 	 * playing/paused song.
 	 */
-	int elapsed_time;
+	unsigned elapsed_time;
+
+	/**
+	 * Time in milliseconds that have elapsed in the currently
+	 * playing/paused song.
+	 */
+	unsigned elapsed_ms;
 
 	/** length in seconds of the currently playing/paused song */
-	int total_time;
+	unsigned total_time;
 
 	/** current bit rate in kbps */
-	int bit_rate;
+	unsigned kbit_rate;
 
-	/** audio sample rate */
-	unsigned int sample_rate;
-
-	/** audio bits */
-	int bits;
-
-	/** audio channels */
-	int channels;
+	/** the current audio format */
+	struct mpd_audio_format audio_format;
 
 	/** non-zero if MPD is updating, 0 otherwise */
-	int updatingdb;
+	unsigned update_id;
 
 	/** error message */
 	char *error;
 };
 
 struct mpd_status *
-mpd_status_new(void)
+mpd_status_begin(void)
 {
 	struct mpd_status *status = malloc(sizeof(*status));
 	if (status == NULL)
@@ -121,22 +121,46 @@ mpd_status_new(void)
 	status->random = false;
 	status->single = false;
 	status->consume = false;
-	status->playlist = -1;
-	status->playlist_length = -1;
+	status->queue_version = 0;
+	status->queue_length = 0;
 	status->state = MPD_STATE_UNKNOWN;
-	status->song = 0;
-	status->songid = 0;
+	status->song_pos = -1;
+	status->song_id = -1;
 	status->elapsed_time = 0;
+	status->elapsed_ms = 0;
 	status->total_time = 0;
-	status->bit_rate = 0;
-	status->sample_rate = 0;
-	status->bits = 0;
-	status->channels = 0;
-	status->crossfade = -1;
+	status->kbit_rate = 0;
+	memset(&status->audio_format, 0, sizeof(status->audio_format));
+	status->crossfade = 0;
 	status->error = NULL;
-	status->updatingdb = 0;
+	status->update_id = 0;
 
 	return status;
+}
+
+/**
+ * Parses the fractional part of the "elapsed" response line.  Up to
+ * three digits are parsed.
+ */
+static unsigned
+parse_ms(const char *p)
+{
+	unsigned ms;
+
+	if (*p >= '0' && *p <= '9')
+		ms = 100 * (*p++ - '0');
+	else
+		return 0;
+
+	if (*p >= '0' && *p <= '9')
+		ms += 10 * (*p - '0');
+	else
+		return ms;
+
+	if (*p >= '0' && *p <= '9')
+		ms += *p - '0';
+
+	return ms;
 }
 
 static enum mpd_state
@@ -150,6 +174,23 @@ parse_mpd_state(const char *p)
 		return MPD_STATE_PAUSE;
 	else
 		return MPD_STATE_UNKNOWN;
+}
+
+static void
+parse_audio_format(struct mpd_audio_format *audio_format, const char *p)
+{
+	char *endptr;
+
+	audio_format->sample_rate = strtol(p, &endptr, 10);
+	if (*endptr == ':') {
+		audio_format->bits = strtol(endptr + 1, &endptr, 10);
+		audio_format->channels = *endptr == ':'
+			? strtol(endptr + 1, NULL, 10)
+			: 0;
+	} else {
+		audio_format->bits = 0;
+		audio_format->channels = 0;
+	}
 }
 
 void
@@ -166,25 +207,35 @@ mpd_status_feed(struct mpd_status *status, const struct mpd_pair *pair)
 	else if (strcmp(pair->name, "consume") == 0)
 		status->consume = !!atoi(pair->value);
 	else if (strcmp(pair->name, "playlist") == 0)
-		status->playlist = strtol(pair->value,NULL,10);
+		status->queue_version = strtol(pair->value, NULL, 10);
 	else if (strcmp(pair->name, "playlistlength") == 0)
-		status->playlist_length = atoi(pair->value);
+		status->queue_length = atoi(pair->value);
 	else if (strcmp(pair->name, "bitrate") == 0)
-		status->bit_rate = atoi(pair->value);
+		status->kbit_rate = atoi(pair->value);
 	else if (strcmp(pair->name, "state") == 0)
 		status->state = parse_mpd_state(pair->value);
 	else if (strcmp(pair->name, "song") == 0)
-		status->song = atoi(pair->value);
+		status->song_pos = atoi(pair->value);
 	else if (strcmp(pair->name, "songid") == 0)
-		status->songid = atoi(pair->value);
+		status->song_id = atoi(pair->value);
 	else if (strcmp(pair->name, "time") == 0) {
-		char * tok = strchr(pair->value,':');
-		/* the second strchr below is a safety check */
-		if (tok && (strchr(tok,0) > (tok+1))) {
-			/* atoi stops at the first non-[0-9] char: */
-			status->elapsed_time = atoi(pair->value);
-			status->total_time = atoi(tok+1);
-		}
+		char *endptr;
+
+		status->elapsed_time = strtol(pair->value, &endptr, 10);
+		if (*endptr == ':')
+			status->total_time = strtol(endptr + 1, NULL, 10);
+
+		if (status->elapsed_ms == 0)
+			status->elapsed_ms = status->elapsed_time * 1000;
+	} else if (strcmp(pair->name, "elapsed") == 0) {
+		char *endptr;
+
+		status->elapsed_ms = strtol(pair->value, &endptr, 10) * 1000;
+		if (*endptr == '.')
+			status->elapsed_ms += parse_ms(endptr + 1);
+
+		if (status->elapsed_time == 0)
+			status->elapsed_time = status->elapsed_ms / 1000;
 	} else if (strcmp(pair->name, "error") == 0) {
 		if (status->error != NULL)
 			free(status->error);
@@ -193,46 +244,9 @@ mpd_status_feed(struct mpd_status *status, const struct mpd_pair *pair)
 	} else if (strcmp(pair->name, "xfade") == 0)
 		status->crossfade = atoi(pair->value);
 	else if (strcmp(pair->name, "updating_db") == 0)
-		status->updatingdb = atoi(pair->value);
-	else if (strcmp(pair->name, "audio") == 0) {
-		char * tok = strchr(pair->value,':');
-		if (tok && (strchr(tok,0) > (tok+1))) {
-			status->sample_rate = atoi(pair->value);
-			status->bits = atoi(++tok);
-			tok = strchr(tok,':');
-			if (tok && (strchr(tok,0) > (tok+1)))
-				status->channels = atoi(tok+1);
-		}
-	}
-
-}
-
-struct mpd_status *
-mpd_recv_status(struct mpd_connection * connection)
-{
-	struct mpd_status * status;
-	struct mpd_pair *pair;
-
-	if (mpd_error_is_defined(&connection->error))
-		return NULL;
-
-	status = mpd_status_new();
-	if (status == NULL) {
-		mpd_error_code(&connection->error, MPD_ERROR_OOM);
-		return NULL;
-	}
-
-	while ((pair = mpd_recv_pair(connection)) != NULL) {
-		mpd_status_feed(status, pair);
-		mpd_return_pair(connection, pair);
-	}
-
-	if (mpd_error_is_defined(&connection->error)) {
-		mpd_status_free(status);
-		return NULL;
-	}
-
-	return status;
+		status->update_id = atoi(pair->value);
+	else if (strcmp(pair->name, "audio") == 0)
+		parse_audio_format(&status->audio_format, pair->value);
 }
 
 void mpd_status_free(struct mpd_status * status) {
@@ -269,14 +283,16 @@ mpd_status_get_consume(const struct mpd_status *status)
 	return status->consume;
 }
 
-int mpd_status_get_playlist_length(const struct mpd_status *status)
+unsigned
+mpd_status_get_queue_length(const struct mpd_status *status)
 {
-	return status->playlist_length;
+	return status->queue_length;
 }
 
-long long mpd_status_get_playlist(const struct mpd_status *status)
+unsigned
+mpd_status_get_queue_version(const struct mpd_status *status)
 {
-	return status->playlist;
+	return status->queue_version;
 }
 
 enum mpd_state
@@ -285,54 +301,62 @@ mpd_status_get_state(const struct mpd_status *status)
 	return status->state;
 }
 
-int mpd_status_get_crossfade(const struct mpd_status *status)
+unsigned
+mpd_status_get_crossfade(const struct mpd_status *status)
 {
 	return status->crossfade;
 }
 
-int mpd_status_get_song(const struct mpd_status *status)
+int
+mpd_status_get_song_pos(const struct mpd_status *status)
 {
-	return status->song;
+	return status->song_pos;
 }
 
-int mpd_status_get_songid(const struct mpd_status *status)
+int
+mpd_status_get_song_id(const struct mpd_status *status)
 {
-	return status->songid;
+	return status->song_id;
 }
 
-int mpd_status_get_elapsed_time(const struct mpd_status *status)
+unsigned
+mpd_status_get_elapsed_time(const struct mpd_status *status)
 {
 	return status->elapsed_time;
 }
 
-int mpd_status_get_total_time(const struct mpd_status *status)
+unsigned
+mpd_status_get_elapsed_ms(const struct mpd_status *status)
+{
+	return status->elapsed_ms;
+}
+
+unsigned
+mpd_status_get_total_time(const struct mpd_status *status)
 {
 	return status->total_time;
 }
 
-int mpd_status_get_bit_rate(const struct mpd_status *status)
+unsigned
+mpd_status_get_kbit_rate(const struct mpd_status *status)
 {
-	return status->bit_rate;
+	return status->kbit_rate;
 }
 
-unsigned int mpd_status_get_sample_rate(const struct mpd_status *status)
+const struct mpd_audio_format *
+mpd_status_get_audio_format(const struct mpd_status *status)
 {
-	return status->sample_rate;
+	return status->audio_format.sample_rate > 0 ||
+		status->audio_format.bits > 0 ||
+		status->audio_format.channels > 0
+		? &status->audio_format
+		: NULL;
 }
 
-int mpd_status_get_bits(const struct mpd_status *status)
+unsigned
+mpd_status_get_update_id(const struct mpd_status *status)
 {
-	return status->bits;
-}
-
-int mpd_status_get_channels(const struct mpd_status *status)
-{
-	return status->channels;
-}
-
-int mpd_status_get_updatingdb(const struct mpd_status *status)
-{
-	return status->updatingdb;
+	return status->update_id;
 }
 
 const char *

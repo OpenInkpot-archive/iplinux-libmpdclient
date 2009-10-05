@@ -26,11 +26,18 @@
    SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+/*! \file
+ * \brief MPD client library
+ *
+ * Do not include this header directly.  Use mpd/client.h instead.
+ */
+
 #ifndef LIBMPDCLIENT_SEND_H
 #define LIBMPDCLIENT_SEND_H
 
+#include <mpd/compiler.h>
+
 #include <stdbool.h>
-#include <stddef.h>
 
 struct mpd_connection;
 
@@ -46,6 +53,7 @@ extern "C" {
  * @param command the command to be sent
  * @return true on success
  */
+mpd_sentinel
 bool
 mpd_send_command(struct mpd_connection *connection, const char *command, ...);
 

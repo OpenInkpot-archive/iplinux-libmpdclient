@@ -26,8 +26,18 @@
    SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+/*! \file
+ * \brief MPD client library
+ *
+ * Receiving response lines from MPD.
+ *
+ * Do not include this header directly.  Use mpd/client.h instead.
+ */
+
 #ifndef MPD_RECV_H
 #define MPD_RECV_H
+
+#include <mpd/compiler.h>
 
 struct mpd_pair;
 struct mpd_connection;
@@ -43,6 +53,7 @@ extern "C" {
  * The caller must dispose the pair with either mpd_return_pair() or
  * mpd_enqueue_pair().
  */
+mpd_malloc
 struct mpd_pair *
 mpd_recv_pair(struct mpd_connection *connection);
 
@@ -50,26 +61,9 @@ mpd_recv_pair(struct mpd_connection *connection);
  * Same as mpd_recv_pair(), but discards all pairs not matching the
  * specified name.
  */
+mpd_malloc
 struct mpd_pair *
 mpd_recv_pair_named(struct mpd_connection *connection, const char *name);
-
-/**
- * Similar to mpd_recv_pair_named(), but duplicates the string and
- * frees the #mpd_pair object.  The caller has to free the return
- * value with mpd_value_free().
- */
-char *
-mpd_recv_value_named(struct mpd_connection *connection, const char *name);
-
-/**
- * This function frees the return value of mpd_recv_value_named().
- *
- * On some OS, it is not possible to use the caller's C library to
- * free the mpd_recv_value_named() value.  This function calls
- * libmpdclient's C library.
- */
-void
-mpd_value_free(char *value);
 
 /**
  * Indicates that the pair object is not needed anymore, and can be

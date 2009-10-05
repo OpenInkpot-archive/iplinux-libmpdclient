@@ -30,12 +30,21 @@
    SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+/*! \file
+ * \brief MPD client library
+ *
+ * Do not include this header directly.  Use mpd/client.h instead.
+ */
+
 #ifndef MPD_DIRECTORY_H
 #define MPD_DIRECTORY_H
+
+#include <mpd/compiler.h>
 
 #include <stdbool.h>
 
 struct mpd_pair;
+struct mpd_connection;
 
 /**
  * \struct mpd_directory
@@ -50,21 +59,11 @@ extern "C" {
 #endif
 
 /**
- * Allocates a new directory object.  Call mpd_directory_free() to
- * dispose it.
- *
- * @param path the path of the directory relative to the MPD music
- * directory.  It must not begin or end with a slash
- * @return the new object, or NULL on out of memory
- */
-struct mpd_directory *
-mpd_directory_new(const char *path);
-
-/**
  * Duplicates a #mpd_directory object.
  *
  * @return the new object, or NULL on out of memory
  */
+mpd_malloc
 struct mpd_directory *
 mpd_directory_dup(const struct mpd_directory *directory);
 
@@ -77,6 +76,7 @@ void mpd_directory_free(struct mpd_directory *directory);
  * Returns the path of this directory, relative to the MPD music
  * directory.  It does not begin with a slash.
  */
+mpd_pure
 const char *
 mpd_directory_get_path(const struct mpd_directory *directory);
 
@@ -87,6 +87,7 @@ mpd_directory_get_path(const struct mpd_directory *directory);
  * @return the new #mpd_entity object, or NULL on error (out of
  * memory, or pair name is not "directory")
  */
+mpd_malloc
 struct mpd_directory *
 mpd_directory_begin(const struct mpd_pair *pair);
 
@@ -101,6 +102,16 @@ mpd_directory_begin(const struct mpd_pair *pair);
 bool
 mpd_directory_feed(struct mpd_directory *directory,
 		   const struct mpd_pair *pair);
+
+/**
+ * Receives the next directory from the MPD server.
+ *
+ * @return a #mpd_directory object, or NULL on error or if the directory list is
+ * finished
+ */
+mpd_malloc
+struct mpd_directory *
+mpd_recv_directory(struct mpd_connection *connection);
 
 #ifdef __cplusplus
 }

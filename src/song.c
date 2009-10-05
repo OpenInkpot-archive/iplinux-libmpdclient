@@ -33,7 +33,6 @@
 #include <mpd/song.h>
 #include <mpd/pair.h>
 #include <mpd/recv.h>
-#include "str_pool.h"
 #include "internal.h"
 #include "iso8601.h"
 
@@ -48,10 +47,14 @@ struct mpd_tag_value {
 };
 
 struct mpd_song {
+	char *uri;
+
 	struct mpd_tag_value tags[MPD_TAG_COUNT];
 
-	/* length of song in seconds, check that it is not MPD_SONG_NO_TIME  */
-	int time;
+	/**
+	 * Duration of the song in seconds, or 0 for unknown.
+	 */
+	unsigned duration;
 
 	/**
 	 * The POSIX UTC time stamp of the last modification, or 0 if
@@ -59,18 +62,30 @@ struct mpd_song {
 	 */
 	time_t last_modified;
 
-	/* if plchanges/playlistinfo/playlistid used, is the position of the
-	 * song in the playlist */
-	int pos;
-	/* song id for a song in the playlist */
-	int id;
+	/**
+	 * The position of this song within the queue.
+	 */
+	unsigned pos;
+
+	/**
+	 * The id of this song within the queue.
+	 */
+	unsigned id;
+
+#ifndef NDEBUG
+	/**
+	 * This flag is used in an assertion: when it is set, you must
+	 * not call mpd_song_feed() again.  It is a safeguard for
+	 * buggy callers.
+	 */
+	bool finished;
+#endif
 };
 
-struct mpd_song *
+static struct mpd_song *
 mpd_song_new(const char *uri)
 {
 	struct mpd_song *song;
-	bool success;
 
 	assert(uri != NULL);
 
@@ -79,19 +94,23 @@ mpd_song_new(const char *uri)
 		/* out of memory */
 		return NULL;
 
-	for (unsigned i = 0; i < MPD_TAG_COUNT; ++i)
-		song->tags[i].value = NULL;
-
-	song->time = MPD_SONG_NO_TIME;
-	song->last_modified = 0;
-	song->pos = MPD_SONG_NO_NUM;
-	song->id = MPD_SONG_NO_ID;
-
-	success = mpd_song_add_tag(song, MPD_TAG_FILENAME, uri);
-	if (!success) {
+	song->uri = strdup(uri);
+	if (song->uri == NULL) {
 		free(song);
 		return NULL;
 	}
+
+	for (unsigned i = 0; i < MPD_TAG_COUNT; ++i)
+		song->tags[i].value = NULL;
+
+	song->duration = 0;
+	song->last_modified = 0;
+	song->pos = 0;
+	song->id = 0;
+
+#ifndef NDEBUG
+	song->finished = false;
+#endif
 
 	return song;
 }
@@ -99,19 +118,21 @@ mpd_song_new(const char *uri)
 void mpd_song_free(struct mpd_song *song) {
 	assert(song != NULL);
 
+	free(song->uri);
+
 	for (unsigned i = 0; i < MPD_TAG_COUNT; ++i) {
 		struct mpd_tag_value *tag = &song->tags[i], *next;
 
 		if (tag->value == NULL)
 			continue;
 
-		str_pool_put(tag->value);
+		free(tag->value);
 
 		tag = tag->next;
 
 		while (tag != NULL) {
 			assert(tag->value != NULL);
-			str_pool_put(tag->value);
+			free(tag->value);
 
 			next = tag->next;
 			free(tag);
@@ -122,6 +143,10 @@ void mpd_song_free(struct mpd_song *song) {
 	free(song);
 }
 
+static bool
+mpd_song_add_tag(struct mpd_song *song,
+		 enum mpd_tag_type type, const char *value);
+
 struct mpd_song *
 mpd_song_dup(const struct mpd_song *song)
 {
@@ -130,7 +155,7 @@ mpd_song_dup(const struct mpd_song *song)
 
 	assert(song != NULL);
 
-	ret = mpd_song_new(mpd_song_get_tag(song, MPD_TAG_FILENAME, 0));
+	ret = mpd_song_new(song->uri);
 	if (ret == NULL)
 		/* out of memory */
 		return NULL;
@@ -152,9 +177,13 @@ mpd_song_dup(const struct mpd_song *song)
 		} while (src_tag != NULL);
 	}
 
-	ret->time = song->time;
+	ret->duration = song->duration;
 	ret->pos = song->pos;
 	ret->id = song->id;
+
+#ifndef NDEBUG
+	ret->finished = true;
+#endif
 
 	return ret;
 }
@@ -162,21 +191,28 @@ mpd_song_dup(const struct mpd_song *song)
 const char *
 mpd_song_get_uri(const struct mpd_song *song)
 {
-	return mpd_song_get_tag(song, MPD_TAG_FILENAME, 0);
+	return song->uri;
 }
 
-bool
+
+/**
+ * Adds a tag value to the song.
+ *
+ * @return true on success, false if the tag is not supported or if no
+ * memory could be allocated
+ */
+static bool
 mpd_song_add_tag(struct mpd_song *song,
 		 enum mpd_tag_type type, const char *value)
 {
 	struct mpd_tag_value *tag = &song->tags[type], *prev;
 
-	if ((int)type < 0 || type == MPD_TAG_ANY || type >= MPD_TAG_COUNT)
+	if ((int)type < 0 || type >= MPD_TAG_COUNT)
 		return false;
 
 	if (tag->value == NULL) {
 		tag->next = NULL;
-		tag->value = str_pool_get(value);
+		tag->value = strdup(value);
 		if (tag->value == NULL)
 			return false;
 	} else {
@@ -188,7 +224,7 @@ mpd_song_add_tag(struct mpd_song *song,
 		if (tag == NULL)
 			return NULL;
 
-		tag->value = str_pool_get(value);
+		tag->value = strdup(value);
 		if (tag->value == NULL) {
 			free(tag);
 			return false;
@@ -201,10 +237,17 @@ mpd_song_add_tag(struct mpd_song *song,
 	return true;
 }
 
-void
+#ifdef UNUSED_CODE
+/**
+ * Removes all values of the specified tag.
+ */
+static void
 mpd_song_clear_tag(struct mpd_song *song, enum mpd_tag_type type)
 {
 	struct mpd_tag_value *tag = &song->tags[type];
+
+	if ((unsigned)type >= MPD_TAG_COUNT)
+		return;
 
 	if (tag->value == NULL)
 		/* this tag type is empty */
@@ -219,6 +262,7 @@ mpd_song_clear_tag(struct mpd_song *song, enum mpd_tag_type type)
 	while ((tag = tag->next) != NULL)
 		free(tag->value);
 }
+#endif
 
 const char *
 mpd_song_get_tag(const struct mpd_song *song,
@@ -226,7 +270,7 @@ mpd_song_get_tag(const struct mpd_song *song,
 {
 	const struct mpd_tag_value *tag = &song->tags[type];
 
-	if ((int)type < 0 || type == MPD_TAG_ANY || type >= MPD_TAG_COUNT)
+	if ((int)type < 0)
 		return NULL;
 
 	if (tag->value == NULL)
@@ -241,19 +285,19 @@ mpd_song_get_tag(const struct mpd_song *song,
 	return tag->value;
 }
 
-void
-mpd_song_set_time(struct mpd_song *song, int t)
+static void
+mpd_song_set_duration(struct mpd_song *song, unsigned duration)
 {
-	song->time = t;
+	song->duration = duration;
 }
 
-int
-mpd_song_get_time(const struct mpd_song *song)
+unsigned
+mpd_song_get_duration(const struct mpd_song *song)
 {
-	return song->time;
+	return song->duration;
 }
 
-void
+static void
 mpd_song_set_last_modified(struct mpd_song *song, time_t mtime)
 {
 	song->last_modified = mtime;
@@ -266,24 +310,24 @@ mpd_song_get_last_modified(const struct mpd_song *song)
 }
 
 void
-mpd_song_set_pos(struct mpd_song *song, int pos)
+mpd_song_set_pos(struct mpd_song *song, unsigned pos)
 {
 	song->pos = pos;
 }
 
-int
+unsigned
 mpd_song_get_pos(const struct mpd_song *song)
 {
 	return song->pos;
 }
 
-void
-mpd_song_set_id(struct mpd_song *song, int id)
+static void
+mpd_song_set_id(struct mpd_song *song, unsigned id)
 {
 	song->id = id;
 }
 
-int
+unsigned
 mpd_song_get_id(const struct mpd_song *song)
 {
 	return song->id;
@@ -305,25 +349,32 @@ mpd_song_begin(const struct mpd_pair *pair)
 bool
 mpd_song_feed(struct mpd_song *song, const struct mpd_pair *pair)
 {
+	enum mpd_tag_type tag_type;
+
+	assert(song != NULL);
+	assert(!song->finished);
 	assert(pair != NULL);
 	assert(pair->name != NULL);
 	assert(pair->value != NULL);
 
-	if (strcmp(pair->name, "file") == 0)
+	if (strcmp(pair->name, "file") == 0) {
+#ifndef NDEBUG
+		song->finished = true;
+#endif
 		return false;
+	}
 
 	if (*pair->value == 0)
 		return true;
 
-	for (unsigned i = 0; i < MPD_TAG_COUNT; ++i) {
-		if (strcmp(pair->name, mpd_tag_type_names[i]) == 0) {
-			mpd_song_add_tag(song, (enum mpd_tag_type)i, pair->value);
-			return true;
-		}
+	tag_type = mpd_tag_name_parse(pair->name);
+	if (tag_type != MPD_TAG_UNKNOWN) {
+		mpd_song_add_tag(song, tag_type, pair->value);
+		return true;
 	}
 
 	if (strcmp(pair->name, "Time") == 0)
-		mpd_song_set_time(song, atoi(pair->value));
+		mpd_song_set_duration(song, atoi(pair->value));
 	else if (strcmp(pair->name, "Last-Modified") == 0)
 		mpd_song_set_last_modified(song, iso8601_datetime_parse(pair->value));
 	else if (strcmp(pair->name, "Pos") == 0)

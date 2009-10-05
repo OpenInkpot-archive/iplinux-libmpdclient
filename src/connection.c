@@ -33,10 +33,13 @@
 #include <mpd/connection.h>
 #include <mpd/async.h>
 #include <mpd/parser.h>
+#include <mpd/password.h>
 #include "resolver.h"
 #include "sync.h"
 #include "socket.h"
 #include "internal.h"
+#include "iasync.h"
+#include "config.h"
 
 #include <assert.h>
 #include <stdlib.h>
@@ -45,75 +48,155 @@
 #define MPD_WELCOME_MESSAGE	"OK MPD "
 
 static bool
-mpd_parse_welcome(struct mpd_connection *connection,
-		  const char *host, int port,
-		  const char *output)
+mpd_parse_welcome(struct mpd_connection *connection, const char *output)
 {
 	const char *tmp;
 	char * test;
-	int i;
 
 	if (strncmp(output,MPD_WELCOME_MESSAGE,strlen(MPD_WELCOME_MESSAGE))) {
-		mpd_error_code(&connection->error, MPD_ERROR_NOTMPD);
-		mpd_error_printf(&connection->error,
-				 "mpd not running on port %i on host \"%s\"",
-				 port, host);
+		mpd_error_code(&connection->error, MPD_ERROR_MALFORMED);
+		mpd_error_message(&connection->error,
+				  "Malformed connect message received");
 		return false;
 	}
 
 	tmp = &output[strlen(MPD_WELCOME_MESSAGE)];
+	connection->version[0] = strtol(tmp, &test, 10);
+	if (test == tmp) {
+		mpd_error_code(&connection->error, MPD_ERROR_MALFORMED);
+		mpd_error_message(&connection->error,
+				  "Malformed version number in connect message");
+		return false;
+	}
 
-	for (i=0;i<3;i++) {
-		if (tmp) connection->version[i] = strtol(tmp,&test,10);
-
-		if (!tmp || (test[0] != '.' && test[0] != '\0')) {
-			mpd_error_code(&connection->error, MPD_ERROR_NOTMPD);
-			mpd_error_printf(&connection->error,
-					 "error parsing version number at \"%s\"",
-					 &output[strlen(MPD_WELCOME_MESSAGE)]);
-			return false;
-		}
-
-		tmp = ++test;
+	if (*test == '.') {
+		connection->version[1] = strtol(test + 1, &test, 10);
+		if (*test == '.')
+			connection->version[2] = strtol(test + 1, &test, 10);
+		else
+			connection->version[2] = 0;
+	} else {
+		connection->version[1] = 0;
+		connection->version[2] = 0;
 	}
 
 	return true;
 }
 
-static void
-mpd_copy_async_error(struct mpd_error_info *error,
-		     const struct mpd_async *async)
-{
-	assert(!mpd_async_is_alive(async));
-
-	mpd_error_code(error, mpd_async_get_error(async));
-	mpd_error_message(error, mpd_async_get_error_message(async));
-}
-
-static void
-mpd_connection_async_error(struct mpd_connection *connection)
-{
-	mpd_copy_async_error(&connection->error, connection->async);
-}
-
 void
 mpd_connection_sync_error(struct mpd_connection *connection)
 {
-	if (mpd_async_is_alive(connection->async)) {
+	if (mpd_async_copy_error(connection->async, &connection->error)) {
 		/* no error noticed by async: must be a timeout in the
 		   sync.c code */
 		mpd_error_code(&connection->error, MPD_ERROR_TIMEOUT);
 		mpd_error_message(&connection->error, "Timeout");
-	} else
-		mpd_connection_async_error(connection);
+	}
+}
+
+/**
+ * Parses the password from the host specification in the form
+ * "password@hostname".
+ *
+ * @param host_p a pointer to the "host" variable, which may be
+ * modified by this function
+ * @return an allocated password string, or NULL if there was no
+ * password
+ */
+static const char *
+mpd_parse_host_password(const char *host, char **password_r)
+{
+	const char *at;
+	char *password;
+
+	assert(password_r != NULL);
+	assert(*password_r == NULL);
+
+	if (host == NULL)
+		return host;
+
+	at = strchr(host, '@');
+	if (at == NULL)
+		return host;
+
+	password = malloc(at - host + 1);
+	if (password != NULL) {
+		/* silently ignoring out-of-memory */
+		memcpy(password, host, at - host);
+		password[at - host] = 0;
+		*password_r = password;
+	}
+
+	return at + 1;
+}
+
+/**
+ * Parses the host specification.  If not specified, it attempts to
+ * load it from the environment variable MPD_HOST.
+ */
+static const char *
+mpd_check_host(const char *host, char **password_r)
+{
+	assert(password_r != NULL);
+	assert(*password_r == NULL);
+
+	if (host == NULL)
+		host = getenv("MPD_HOST");
+
+	if (host != NULL)
+		host = mpd_parse_host_password(host, password_r);
+
+	return host;
+}
+
+/**
+ * Parses the port specification.  If not specified (0), it attempts
+ * to load it from the environment variable MPD_PORT.
+ */
+static unsigned
+mpd_check_port(unsigned port)
+{
+	if (port == 0) {
+		const char *env_port = getenv("MPD_PORT");
+		if (env_port != NULL)
+			port = atoi(env_port);
+	}
+
+	return port;
+}
+
+static int
+mpd_connect(const char *host, unsigned port, const struct timeval *timeout,
+	    struct mpd_error_info *error)
+{
+#ifdef DEFAULT_SOCKET
+	if (host == NULL && port == 0) {
+		int fd = mpd_socket_connect(DEFAULT_SOCKET, 0, timeout, error);
+		if (fd >= 0)
+			return fd;
+
+		mpd_error_clear(error);
+	}
+#endif
+
+	if (host == NULL)
+		host = DEFAULT_HOST;
+
+	if (port == 0)
+		port = DEFAULT_PORT;
+
+	return mpd_socket_connect(host, port, timeout, error);
 }
 
 struct mpd_connection *
-mpd_connection_new(const char *host, int port, float timeout)
+mpd_connection_new(const char *host, unsigned port, unsigned timeout_ms)
 {
-	const char *line;
 	struct mpd_connection *connection = malloc(sizeof(*connection));
+	bool success;
 	int fd;
+	const char *line;
+	char *password = NULL;
+
 
 	if (connection == NULL)
 		return NULL;
@@ -129,15 +212,24 @@ mpd_connection_new(const char *host, int port, float timeout)
 	if (!mpd_socket_global_init(&connection->error))
 		return connection;
 
-	mpd_connection_set_timeout(connection,timeout);
+	if (timeout_ms == 0)
+		/* 30s is the default */
+		timeout_ms = 30000;
 
-	fd = mpd_socket_connect(host, port, &connection->timeout,
-				&connection->error);
-	if (fd < 0)
+	mpd_connection_set_timeout(connection, timeout_ms);
+
+	host = mpd_check_host(host, &password);
+	port = mpd_check_port(port);
+
+	fd = mpd_connect(host, port, &connection->timeout, &connection->error);
+	if (fd < 0) {
+		free(password);
 		return connection;
+	}
 
 	connection->async = mpd_async_new(fd);
 	if (connection->async == NULL) {
+		free(password);
 		mpd_socket_close(fd);
 		mpd_error_code(&connection->error, MPD_ERROR_OOM);
 		return connection;
@@ -145,57 +237,62 @@ mpd_connection_new(const char *host, int port, float timeout)
 
 	connection->parser = mpd_parser_new();
 	if (connection->parser == NULL) {
+		free(password);
 		mpd_error_code(&connection->error, MPD_ERROR_OOM);
 		return connection;
 	}
 
 	line = mpd_sync_recv_line(connection->async, &connection->timeout);
 	if (line == NULL) {
+		free(password);
 		mpd_connection_sync_error(connection);
 		return connection;
 	}
 
-	mpd_parse_welcome(connection, host, port, line);
+	success = mpd_parse_welcome(connection, line);
+
+	if (password != NULL) {
+		if (success)
+			mpd_run_password(connection, password);
+		free(password);
+	}
 
 	return connection;
 }
 
-enum mpd_error
-mpd_get_error(const struct mpd_connection *connection)
+struct mpd_connection *
+mpd_connection_new_async(struct mpd_async *async, const char *welcome)
 {
-	return connection->error.code;
-}
+	struct mpd_connection *connection = malloc(sizeof(*connection));
 
-const char *
-mpd_get_error_message(const struct mpd_connection *connection)
-{
-	assert(connection->error.code != MPD_ERROR_SUCCESS);
-	assert(connection->error.message != NULL ||
-	       connection->error.code == MPD_ERROR_OOM);
+	assert(async != NULL);
+	assert(welcome != NULL);
 
-	if (connection->error.message == NULL)
-		return "Out of memory";
+	if (connection == NULL)
+		return NULL;
 
-	return connection->error.message;
-}
+	mpd_error_init(&connection->error);
+	connection->async = async;
+	connection->timeout.tv_sec = 30;
+	connection->timeout.tv_usec = 0;
+	connection->parser = NULL;
+	connection->receiving = false;
+	connection->sending_command_list = false;
+	connection->pair_state = PAIR_STATE_NONE;
+	connection->request = NULL;
 
-enum mpd_ack
-mpd_get_server_error(const struct mpd_connection *connection)
-{
-	assert(connection->error.code == MPD_ERROR_ACK);
+	if (!mpd_socket_global_init(&connection->error))
+		return connection;
 
-	return connection->error.ack;
-}
+	connection->parser = mpd_parser_new();
+	if (connection->parser == NULL) {
+		mpd_error_code(&connection->error, MPD_ERROR_OOM);
+		return connection;
+	}
 
-bool
-mpd_clear_error(struct mpd_connection *connection)
-{
-	if (mpd_error_is_fatal(&connection->error))
-		/* impossible to recover */
-		return false;
+	mpd_parse_welcome(connection, welcome);
 
-	mpd_error_clear(&connection->error);
-	return true;
+	return connection;
 }
 
 void mpd_connection_free(struct mpd_connection *connection)
@@ -216,21 +313,37 @@ void mpd_connection_free(struct mpd_connection *connection)
 }
 
 void
-mpd_connection_set_timeout(struct mpd_connection *connection, float timeout)
+mpd_connection_set_timeout(struct mpd_connection *connection,
+			   unsigned timeout_ms)
 {
-	connection->timeout.tv_sec = (long)timeout;
-	connection->timeout.tv_usec = ((long)(timeout * 1e6)) % 1000000;
+	assert(timeout_ms > 0);
+
+	connection->timeout.tv_sec = timeout_ms / 1000;
+	connection->timeout.tv_usec = timeout_ms % 1000;
+}
+
+int
+mpd_connection_get_fd(const struct mpd_connection *connection)
+{
+	return mpd_async_get_fd(connection->async);
+}
+
+struct mpd_async *
+mpd_connection_get_async(struct mpd_connection *connection)
+{
+	return connection->async;
 }
 
 const unsigned *
-mpd_get_server_version(const struct mpd_connection *connection)
+mpd_connection_get_server_version(const struct mpd_connection *connection)
 {
 	return connection->version;
 }
 
 int
-mpd_cmp_server_version(const struct mpd_connection *connection, unsigned major,
-		       unsigned minor, unsigned patch)
+mpd_connection_cmp_server_version(const struct mpd_connection *connection,
+				  unsigned major, unsigned minor,
+				  unsigned patch)
 {
 	const unsigned *v = connection->version;
 

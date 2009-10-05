@@ -31,12 +31,13 @@
 */
 
 #include <mpd/tag.h>
-#include "internal.h"
 
-const char *const mpd_tag_type_names[MPD_TAG_COUNT] =
+#include <assert.h>
+#include <string.h>
+#include <stdbool.h>
+
+static const char *const mpd_tag_type_names[MPD_TAG_COUNT] =
 {
-	"Any",
-	"Filename",
 	"Artist",
 	"Album",
 	"AlbumArtist",
@@ -55,3 +56,63 @@ const char *const mpd_tag_type_names[MPD_TAG_COUNT] =
 	[MPD_TAG_MUSICBRAINZ_ALBUMARTISTID] = "MUSICBRAINZ_ALBUMARTISTID",
 	[MPD_TAG_MUSICBRAINZ_TRACKID] = "MUSICBRAINZ_TRACKID",
 };
+
+const char *
+mpd_tag_name(enum mpd_tag_type type)
+{
+	if ((unsigned)type >= MPD_TAG_COUNT)
+		return NULL;
+
+	return mpd_tag_type_names[type];
+}
+
+enum mpd_tag_type
+mpd_tag_name_parse(const char *name)
+{
+	assert(name != NULL);
+
+	for (unsigned i = 0; i < MPD_TAG_COUNT; ++i)
+		if (strcmp(name, mpd_tag_type_names[i]) == 0)
+			return (enum mpd_tag_type)i;
+
+	return MPD_TAG_UNKNOWN;
+}
+
+/**
+ * This implementation is limited to ASCII letters.  Cheap, and good
+ * enough for us: all valid tag names are hard-coded above.
+ */
+static inline bool
+ignore_case_char_equals(const char a, const char b)
+{
+	return (a & ~0x20) == (b & ~0x20);
+}
+
+static bool
+ignore_case_string_equals(const char *a, const char *b)
+{
+	assert(a != NULL);
+	assert(b != NULL);
+
+	while (*a != 0) {
+		if (!ignore_case_char_equals(*a, *b))
+			return false;
+
+		++a;
+		++b;
+	}
+
+	return *b == 0;
+}
+
+enum mpd_tag_type
+mpd_tag_name_iparse(const char *name)
+{
+	assert(name != NULL);
+
+	for (unsigned i = 0; i < MPD_TAG_COUNT; ++i)
+		if (ignore_case_string_equals(name, mpd_tag_type_names[i]))
+			return (enum mpd_tag_type)i;
+
+	return MPD_TAG_UNKNOWN;
+}

@@ -30,8 +30,16 @@
    SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+/*! \file
+ * \brief MPD client library
+ *
+ * Do not include this header directly.  Use mpd/client.h instead.
+ */
+
 #ifndef MPD_IDLE_H
 #define MPD_IDLE_H
+
+#include <mpd/compiler.h>
 
 #include <stdbool.h>
 
@@ -49,8 +57,11 @@ enum mpd_idle {
 	    renamed */
 	MPD_IDLE_STORED_PLAYLIST = 0x2,
 
-	/** the current playlist has been modified */
-	MPD_IDLE_PLAYLIST = 0x4,
+	/** the queue has been modified */
+	MPD_IDLE_QUEUE = 0x4,
+
+	/** deprecated, don't use */
+	MPD_IDLE_PLAYLIST = MPD_IDLE_QUEUE,
 
 	/** the player state has changed: play, stop, pause, seek, ... */
 	MPD_IDLE_PLAYER = 0x8,
@@ -65,7 +76,7 @@ enum mpd_idle {
 	MPD_IDLE_OPTIONS = 0x40,
 
 	/** a database update has started or finished. */
-	MPD_IDLE_UPDATE = 0x100,
+	MPD_IDLE_UPDATE = 0x80,
 };
 
 #ifdef __cplusplus
@@ -73,8 +84,28 @@ extern "C" {
 #endif
 
 /**
+ * Returns the name of the specified idle event.
+ *
+ * @param idle an idle event id
+ * @return the name, or NULL if that event is not known
+ */
+mpd_const
+const char *
+mpd_idle_name(enum mpd_idle idle);
+
+/**
+ * Parses the name of an idle event.
+ *
+ * @param name an idle event name
+ * @return the id, or 0 if that event is not known
+ */
+mpd_pure
+enum mpd_idle
+mpd_idle_name_parse(const char *name);
+
+/**
  * Enters "idle" mode: MPD will stall the response until an event has
- * occured.  Call mpd_send_noidle() to abort the idle mode, or
+ * occurred.  Call mpd_send_noidle() to abort the idle mode, or
  * mpd_recv_idle() to read the event mask (or synchronously wait for
  * events).
  */
@@ -82,8 +113,18 @@ bool
 mpd_send_idle(struct mpd_connection *connection);
 
 /**
+ * Same as mpd_send_idle(), but listen only on specific events.
+ *
+ * @param connection the connection to MPD
+ * @param mask a bit mask of idle events; must not be 0
+ * @return a positive job id on success, 0 on error
+ */
+bool
+mpd_send_idle_mask(struct mpd_connection *connection, enum mpd_idle mask);
+
+/**
  * Tells MPD to leave the "idle" mode.  MPD will then respond with a
- * list of events which have occured (which may be empty).  Call
+ * list of events which have occurred (which may be empty).  Call
  * mpd_recv_idle() after that.
  */
 bool
@@ -95,15 +136,56 @@ mpd_send_noidle(struct mpd_connection *connection);
  *
  * @return an idle code, or 0 if the pair was not understood
  */
+mpd_pure
 enum mpd_idle
 mpd_idle_parse_pair(const struct mpd_pair *pair);
 
 /**
  * Waits until MPD sends the list of idle events and returns it in a
  * bit mask.
+ *
+ * @param connection the connection to MPD
+ * @param disable_timeout if true, then libmpdclients temporarily
+ * disables the configured timeout (see mpd_connection_set_timeout()):
+ * this function blocks forever, until either MPD sends a response, or
+ * an error occurs.
+ * @return the event bit mask, or 0 on error or if there were no
+ * events
  */
 enum mpd_idle
-mpd_recv_idle(struct mpd_connection *connection);
+mpd_recv_idle(struct mpd_connection *connection, bool disable_timeout);
+
+/**
+ * Shortcut for mpd_send_idle() and mpd_recv_idle().  During
+ * mpd_recv_idle(), the configured timeout is disabled.
+ *
+ * @param connection the connection to MPD
+ * @return the event bit mask, or 0 on error
+ */
+enum mpd_idle
+mpd_run_idle(struct mpd_connection *connection);
+
+/**
+ * Shortcut for mpd_send_idle_mask() and mpd_recv_idle().  During
+ * mpd_recv_idle(), the configured timeout is disabled.
+ *
+ * @param connection the connection to MPD
+ * @param mask a bit mask of idle events; must not be 0
+ * @return the event bit mask, or 0 on error
+ */
+enum mpd_idle
+mpd_run_idle_mask(struct mpd_connection *connection, enum mpd_idle mask);
+
+/**
+ * Shortcut for mpd_send_noidle() and mpd_recv_idle().  During
+ * mpd_recv_idle(), the configured timeout is not disabled.
+ *
+ * @param connection the connection to MPD
+ * @return the event bit mask, or 0 on error or if there were no
+ * events
+ */
+enum mpd_idle
+mpd_run_noidle(struct mpd_connection *connection);
 
 #ifdef __cplusplus
 }

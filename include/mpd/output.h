@@ -30,12 +30,21 @@
    SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+/*! \file
+ * \brief MPD client library
+ *
+ * Do not include this header directly.  Use mpd/client.h instead.
+ */
+
 #ifndef MPD_OUTPUT_H
 #define MPD_OUTPUT_H
+
+#include <mpd/compiler.h>
 
 #include <stdbool.h>
 
 struct mpd_connection;
+struct mpd_pair;
 
 /**
  * \struct mpd_output
@@ -47,6 +56,55 @@ struct mpd_output;
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/**
+ * Begins parsing a new #mpd_output.
+ *
+ * @param pair the first pair in this output (name is "outputid")
+ * @return the new #mpd_output object, or NULL on error (out of
+ * memory, or wrong pair name)
+ */
+mpd_malloc
+struct mpd_output *
+mpd_output_begin(const struct mpd_pair *pair);
+
+/**
+ * Parses the pair, adding its information to the specified
+ * #mpd_output object.
+ *
+ * @return true if the pair was parsed and added to the output (or if
+ * the pair was not understood and ignored), false if this pair is the
+ * beginning of the next output
+ */
+bool
+mpd_output_feed(struct mpd_output *output, const struct mpd_pair *pair);
+
+/**
+ * Frees a mpd_output object returned from mpd_output_get_next().
+ */
+void
+mpd_output_free(struct mpd_output *output);
+
+/**
+ * @return the id of the specified #mpd_output object
+ */
+mpd_pure
+unsigned
+mpd_output_get_id(const struct mpd_output *output);
+
+/**
+ * @return the configured name of the specified #mpd_output object
+ */
+mpd_pure
+const char *
+mpd_output_get_name(const struct mpd_output *output);
+
+/**
+ * @return true if this output is enabled
+ */
+mpd_pure
+bool
+mpd_output_get_enabled(const struct mpd_output *output);
 
 /**
  * Sends the "outputs" command to MPD.  Call mpd_output_get_next() to
@@ -65,32 +123,53 @@ mpd_send_outputs(struct mpd_connection *connection);
  * @return a mpd_output object on success, NULL on error or
  * end-of-response
  */
+mpd_malloc
 struct mpd_output *
 mpd_recv_output(struct mpd_connection *connection);
 
 /**
- * Frees a mpd_output object returned from mpd_output_get_next().
- */
-void
-mpd_output_free(struct mpd_output *output);
-
-/**
- * @return the id of the specified #mpd_output object
- */
-unsigned
-mpd_output_get_id(const struct mpd_output *output);
-
-/**
- * @return the configured name of the specified #mpd_output object
- */
-const char *
-mpd_output_get_name(const struct mpd_output *output);
-
-/**
- * @return true if this output is enabled
+ * Sends the "enableoutput" command to MPD.
+ *
+ * @param connection A valid and connected mpd_connection.
+ * @param output_id an identifier for the output device (see
+ * mpd_output_get_next())
+ * @return true on success
  */
 bool
-mpd_output_get_enabled(const struct mpd_output *output);
+mpd_send_enable_output(struct mpd_connection *connection, unsigned output_id);
+
+/**
+ * Shortcut for mpd_send_enable_output() and mpd_response_finish().
+ *
+ * @param connection A valid and connected mpd_connection.
+ * @param output_id an identifier for the output device (see
+ * mpd_output_get_next())
+ * @return true on success
+ */
+bool
+mpd_run_enable_output(struct mpd_connection *connection, unsigned output_id);
+
+/**
+ * Sends the "disableoutput" command to MPD.
+ *
+ * @param connection A valid and connected mpd_connection.
+ * @param output_id an identifier for the output device (see
+ * mpd_output_get_next())
+ * @return true on success
+ */
+bool
+mpd_send_disable_output(struct mpd_connection *connection, unsigned output_id);
+
+/**
+ * Shortcut for mpd_send_disable_output() and mpd_response_finish().
+ *
+ * @param connection A valid and connected mpd_connection.
+ * @param output_id an identifier for the output device (see
+ * mpd_output_get_next())
+ * @return true on success
+ */
+bool
+mpd_run_disable_output(struct mpd_connection *connection, unsigned output_id);
 
 #ifdef __cplusplus
 }

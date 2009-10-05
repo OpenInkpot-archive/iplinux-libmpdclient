@@ -45,8 +45,8 @@ struct mpd_parser {
 		bool discrete;
 
 		struct {
-			enum mpd_ack ack;
-			int at;
+			enum mpd_server_error server;
+			unsigned at;
 			const char *message;
 		} error;
 
@@ -103,8 +103,8 @@ mpd_parser_feed(struct mpd_parser *parser, char *line)
 	} else if (memcmp(line, "ACK", 3) == 0) {
 		char *p, *q;
 
-		parser->u.error.ack = MPD_ACK_ERROR_UNK;
-		parser->u.error.at = -1;
+		parser->u.error.server = MPD_SERVER_ERROR_UNK;
+		parser->u.error.at = 0;
 		parser->u.error.message = NULL;
 
 		/* parse [ACK@AT] */
@@ -113,7 +113,7 @@ mpd_parser_feed(struct mpd_parser *parser, char *line)
 		if (p == NULL)
 			return set_result(parser, MPD_PARSER_ERROR);
 
-		parser->u.error.ack = strtol(p + 1, &p, 10);
+		parser->u.error.server = strtol(p + 1, &p, 10);
 		if (*p == '@')
 			parser->u.error.at = strtol(p + 1, &p, 10);
 
@@ -166,15 +166,15 @@ mpd_parser_is_discrete(const struct mpd_parser *parser)
 	return parser->u.discrete;
 }
 
-enum mpd_ack
-mpd_parser_get_ack(const struct mpd_parser *parser)
+enum mpd_server_error
+mpd_parser_get_server_error(const struct mpd_parser *parser)
 {
 	assert(parser->result == MPD_PARSER_ERROR);
 
-	return parser->u.error.ack;
+	return parser->u.error.server;
 }
 
-int
+unsigned
 mpd_parser_get_at(const struct mpd_parser *parser)
 {
 	assert(parser->result == MPD_PARSER_ERROR);

@@ -36,13 +36,12 @@
 #include <mpd/recv.h>
 #include "internal.h"
 
-#include <ctype.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 
-bool
-mpd_search_db_songs(struct mpd_connection *connection, bool exact)
+static bool
+mpd_search_init(struct mpd_connection *connection, const char *cmd)
 {
 	if (mpd_error_is_defined(&connection->error))
 		return false;
@@ -54,10 +53,7 @@ mpd_search_db_songs(struct mpd_connection *connection, bool exact)
 		return false;
 	}
 
-	if (exact)
-		connection->request = strdup("find");
-	else
-		connection->request = strdup("search");
+	connection->request = strdup(cmd);
 	if (connection->request == NULL) {
 		mpd_error_code(&connection->error, MPD_ERROR_OOM);
 		return false;
@@ -67,28 +63,24 @@ mpd_search_db_songs(struct mpd_connection *connection, bool exact)
 }
 
 bool
-mpd_search_playlist_songs(struct mpd_connection *connection, bool exact)
+mpd_search_db_songs(struct mpd_connection *connection, bool exact)
 {
-	if (mpd_error_is_defined(&connection->error))
-		return false;
+	return mpd_search_init(connection,
+			       exact ? "find" : "search");
+}
 
-	if (connection->request) {
-		mpd_error_code(&connection->error, MPD_ERROR_STATE);
-		mpd_error_message(&connection->error,
-				  "search already in progress");
-		return false;
-	}
+bool
+mpd_search_add_db_songs(struct mpd_connection *connection, bool exact)
+{
+	return mpd_search_init(connection,
+			       exact ? "findadd" : "searchadd");
+}
 
-	if (exact)
-		connection->request = strdup("playlistfind");
-	else
-		connection->request = strdup("playlistsearch");
-	if (connection->request == NULL) {
-		mpd_error_code(&connection->error, MPD_ERROR_OOM);
-		return false;
-	}
-
-	return true;
+bool
+mpd_search_queue_songs(struct mpd_connection *connection, bool exact)
+{
+	return mpd_search_init(connection,
+			       exact ? "playlistfind" : "playlistsearch");
 }
 
 bool
@@ -107,14 +99,13 @@ mpd_search_db_tags(struct mpd_connection *connection, enum mpd_tag_type type)
 		return false;
 	}
 
-	if (type >= MPD_TAG_COUNT) {
-		mpd_error_code(&connection->error, MPD_ERROR_ARG);
+	strtype = mpd_tag_name(type);
+	if (strtype == NULL) {
+		mpd_error_code(&connection->error, MPD_ERROR_ARGUMENT);
 		mpd_error_message(&connection->error,
 				  "invalid type specified");
 		return false;
 	}
-
-	strtype = mpd_tag_type_names[type];
 
 	len = 5+strlen(strtype)+1;
 	connection->request = malloc(len);
@@ -123,8 +114,7 @@ mpd_search_db_tags(struct mpd_connection *connection, enum mpd_tag_type type)
 		return false;
 	}
 
-	snprintf(connection->request, len, "list %c%s",
-		 tolower(strtype[0]), strtype+1);
+	snprintf(connection->request, len, "list %s", strtype);
 
 	return true;
 }
@@ -178,16 +168,17 @@ mpd_sanitize_arg(const char * arg)
 	return ret;
 }
 
-bool
+static bool
 mpd_search_add_constraint(struct mpd_connection *connection,
-			  enum mpd_tag_type type, const char *name)
+			  mpd_unused enum mpd_operator oper,
+			  const char *name,
+			  const char *value)
 {
-	size_t old_length;
-	const char *strtype;
+	size_t old_length, add_length;
 	char *arg, *request;
-	int len;
 
 	assert(name != NULL);
+	assert(value != NULL);
 
 	if (mpd_error_is_defined(&connection->error))
 		return false;
@@ -199,24 +190,16 @@ mpd_search_add_constraint(struct mpd_connection *connection,
 		return false;
 	}
 
-	if (type >= MPD_TAG_COUNT) {
-		mpd_error_code(&connection->error, MPD_ERROR_ARG);
-		mpd_error_message(&connection->error,
-				  "invalid type specified");
-		return false;
-	}
-
 	old_length = strlen(connection->request);
 
-	strtype = mpd_tag_type_names[type];
-	arg = mpd_sanitize_arg(name);
+	arg = mpd_sanitize_arg(value);
 	if (arg == NULL) {
 		mpd_error_code(&connection->error, MPD_ERROR_OOM);
 		return false;
 	}
 
-	len = 1 + strlen(strtype) + 2 + strlen(arg) + 2;
-	request = realloc(connection->request, old_length + len);
+	add_length = 1 + strlen(name) + 2 + strlen(arg) + 2;
+	request = realloc(connection->request, old_length + add_length);
 	if (request == NULL) {
 		free(arg);
 		mpd_error_code(&connection->error, MPD_ERROR_OOM);
@@ -224,11 +207,47 @@ mpd_search_add_constraint(struct mpd_connection *connection,
 	}
 
 	connection->request = request;
-	snprintf(connection->request + old_length, len, " %c%s \"%s\"",
-		 tolower(strtype[0]), strtype+1, arg);
+	snprintf(connection->request + old_length, add_length,
+		 " %s \"%s\"", name, arg);
 
 	free(arg);
 	return true;
+}
+
+bool
+mpd_search_add_uri_constraint(struct mpd_connection *connection,
+			      enum mpd_operator oper,
+			      const char *value)
+{
+	return mpd_search_add_constraint(connection, oper, "file", value);
+}
+
+bool
+mpd_search_add_tag_constraint(struct mpd_connection *connection,
+			      enum mpd_operator oper,
+			      enum mpd_tag_type type, const char *value)
+{
+	const char *strtype;
+
+	assert(value != NULL);
+
+	strtype = mpd_tag_name(type);
+	if (strtype == NULL) {
+		mpd_error_code(&connection->error, MPD_ERROR_ARGUMENT);
+		mpd_error_message(&connection->error,
+				  "invalid type specified");
+		return false;
+	}
+
+	return mpd_search_add_constraint(connection, oper, strtype, value);
+}
+
+bool
+mpd_search_add_any_tag_constraint(struct mpd_connection *connection,
+				  enum mpd_operator oper,
+				  const char *value)
+{
+	return mpd_search_add_constraint(connection, oper, "any", value);
 }
 
 bool
@@ -236,8 +255,10 @@ mpd_search_commit(struct mpd_connection *connection)
 {
 	bool success;
 
-	if (mpd_error_is_defined(&connection->error))
+	if (mpd_error_is_defined(&connection->error)) {
+		mpd_search_cancel(connection);
 		return false;
+	}
 
 	if (connection->request == NULL) {
 		mpd_error_code(&connection->error, MPD_ERROR_STATE);
@@ -253,12 +274,23 @@ mpd_search_commit(struct mpd_connection *connection)
 	return success;
 }
 
-char *mpd_get_next_tag(struct mpd_connection *connection,
-		       enum mpd_tag_type type)
+void
+mpd_search_cancel(struct mpd_connection *connection)
 {
-	if (type >= MPD_TAG_COUNT || type == MPD_TAG_ANY)
+	if (connection->request != NULL) {
+		free(connection->request);
+		connection->request = NULL;
+	}
+}
+
+struct mpd_pair *
+mpd_recv_pair_tag(struct mpd_connection *connection, enum mpd_tag_type type)
+{
+	const char *name;
+
+	name = mpd_tag_name(type);
+	if (name == NULL)
 		return NULL;
-	if (type == MPD_TAG_FILENAME)
-		return mpd_recv_value_named(connection, "file");
-	return mpd_recv_value_named(connection, mpd_tag_type_names[type]);
+
+	return mpd_recv_pair_named(connection, name);
 }

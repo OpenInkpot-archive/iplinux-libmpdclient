@@ -30,6 +30,12 @@
    SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+/*! \file
+ * \brief MPD client library
+ *
+ * Do not include this header directly.  Use mpd/client.h instead.
+ */
+
 #ifndef MPD_RESPONSE_H
 #define MPD_RESPONSE_H
 
@@ -58,45 +64,6 @@ mpd_response_finish(struct mpd_connection *connection);
  */
 bool
 mpd_response_next(struct mpd_connection *connection);
-
-/**
- * Returns the id of the new song in the playlist.  To be called after
- * mpd_send_addid().
- *
- * @return the new song id, -1 on error or if MPD did not send an id
- */
-int
-mpd_recv_song_id(struct mpd_connection *connection);
-
-/**
- * Receives the id the of the update job which was submitted by
- * mpd_send_update().
- */
-int
-mpd_recv_update_id(struct mpd_connection *connection);
-
-/**
- * Receives the next supported command.  Call this in a loop after
- * mpd_send_commands() or mpd_send_notcommands().
- *
- * @param connection a #mpd_connection
- * @returns a string, needs to be free'ed
- */
-char *
-mpd_recv_command_name(struct mpd_connection *connection);
-
-/**
- * Receives one line of the mpd_send_urlhandlers() response.
- */
-char *
-mpd_recv_handler(struct mpd_connection *connection);
-
-/**
- * Receives the next tag type name.  Call this in a loop after
- * mpd_send_tagtypes().
- */
-char *
-mpd_recv_tag_type_name(struct mpd_connection *connection);
 
 #ifdef __cplusplus
 }

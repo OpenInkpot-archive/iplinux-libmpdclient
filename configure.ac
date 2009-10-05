@@ -1,8 +1,8 @@
 AC_PREREQ(2.60)
-AC_INIT(MPD client library for C, 2.0~git, max@duempel.org, libmpdclient)
+AC_INIT(libmpdclient, 2.1~git, musicpd-dev-team@lists.sourceforge.net)
 AC_CONFIG_SRCDIR([src/connection.c])
 AC_CONFIG_AUX_DIR(build)
-AM_INIT_AUTOMAKE([foreign 1.9 dist-bzip2])
+AM_INIT_AUTOMAKE([foreign 1.10 dist-bzip2])
 AM_CONFIG_HEADER([config.h])
 AC_CONFIG_MACRO_DIR([m4])
 
@@ -16,6 +16,7 @@ m4_defun([_LT_AC_LANG_F77_CONFIG], [:])
 dnl Check for programs
 AC_PROG_CC_C99
 AC_PROG_INSTALL
+AC_LIBTOOL_WIN32_DLL
 AC_PROG_LIBTOOL
 
 AC_PATH_PROG(DOXYGEN, doxygen)
@@ -31,22 +32,24 @@ set -- $CFLAGS
 
 
 dnl
+dnl OS specific defaults
+dnl
+
+AC_CANONICAL_HOST
+
+case "$host_os" in
+mingw32* | windows*)
+	LIBS="$LIBS -lws2_32"
+	;;
+esac
+
+
+dnl
 dnl Check for libraries
 dnl
 
-dnl Try to find the socket functions
-AC_CHECK_FUNC([socket],
-	[],
-	[AC_CHECK_LIB([socket], [socket], [LIBS="$LIBS -lsocket"],
-		[AC_MSG_ERROR(No UNIX socket API found)])]
-)
-
-dnl Try to find the gethostbyname functions
-AC_CHECK_FUNC([gethostbyname],
-	[],
-	[AC_CHECK_LIB([nsl],[gethostbyname],[LIBS="$LIBS -lnsl"],
-		[AC_MSG_ERROR(No UNIX gethostbyname API found)])]
-)
+AC_CHECK_LIB(socket, socket, LIBS="$LIBS -lsocket",)
+AC_CHECK_LIB(nsl, gethostbyname, LIBS="$LIBS -lnsl",)
 
 
 dnl
@@ -90,26 +93,39 @@ dnl
 dnl Compile-time options
 dnl
 
-dnl Default host
-AC_MSG_CHECKING([for default MPD host])
+AC_ARG_WITH([default-socket],
+	AC_HELP_STRING([--with-default-socket=PATH],
+		[default path of the socket file @<:@/var/run/mpd/socket@:>@]),,
+	[with_default_socket=auto])
+
+if test x$with_default_socket = xauto; then
+	case "$host_os" in
+	mingw32* | windows*)
+		# no UNIX domain sockets on WIN32
+		with_default_socket=no
+		;;
+	*)
+		with_default_socket=/var/run/mpd/socket
+		;;
+	esac
+fi
+
+if test x$with_default_socket != xno; then
+	AC_DEFINE_UNQUOTED([DEFAULT_SOCKET], ["$with_default_socket"],
+		[Default UNIX socket path])
+fi
+
 AC_ARG_WITH([default-host],
 	AC_HELP_STRING([--with-default-host=ARG],
-		[Default MPD host @<:@localhost@:>@]),
-	[DEFAULT_HOST="$withval"],
-	[DEFAULT_HOST="localhost"])
-AC_MSG_RESULT([$DEFAULT_HOST])
-AC_DEFINE_UNQUOTED([DEFAULT_HOST], ["$DEFAULT_HOST"], [Default MPD host])
+		[default MPD host @<:@localhost@:>@]),,
+	[with_default_host=localhost])
+AC_DEFINE_UNQUOTED([DEFAULT_HOST], ["$with_default_host"], [Default MPD host])
 
-dnl Default port
-AC_MSG_CHECKING([for default MPD port])
 AC_ARG_WITH([default-port],
 	AC_HELP_STRING([--with-default-port=ARG],
-		[Default port @<:@6600@:>@]),
-	[DEFAULT_PORT="$withval"],
-	[DEFAULT_PORT="6600"])
-AC_MSG_RESULT([$DEFAULT_PORT])
-AC_DEFINE_UNQUOTED([DEFAULT_PORT], [$DEFAULT_PORT], [Default MPD port])
-AC_DEFINE_UNQUOTED([DEFAULT_PORT_STR], ["$DEFAULT_PORT"], [Default MPD port])
+		[default MPD port @<:@6600@:>@]),,
+	[with_default_port=6600])
+AC_DEFINE_UNQUOTED([DEFAULT_PORT], [$with_default_port], [Default MPD port])
 
 
 dnl

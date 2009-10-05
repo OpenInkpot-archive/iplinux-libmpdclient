@@ -31,13 +31,10 @@
 */
 
 #include <mpd/response.h>
-#include <mpd/connection.h>
-#include <mpd/pair.h>
 #include <mpd/recv.h>
 #include "internal.h"
 
 #include <assert.h>
-#include <stdlib.h>
 
 bool
 mpd_response_finish(struct mpd_connection *connection)
@@ -59,6 +56,8 @@ mpd_response_finish(struct mpd_connection *connection)
 
 		pair = mpd_recv_pair(connection);
 		assert(pair != NULL || !connection->receiving ||
+		       (connection->sending_command_list &&
+			connection->discrete_finished) ||
 		       mpd_error_is_defined(&connection->error));
 
 		if (pair != NULL)
@@ -72,6 +71,9 @@ bool
 mpd_response_next(struct mpd_connection *connection)
 {
 	struct mpd_pair *pair;
+
+	if (mpd_error_is_defined(&connection->error))
+		return false;
 
 	if (!connection->receiving) {
 		mpd_error_code(&connection->error, MPD_ERROR_STATE);
@@ -100,56 +102,10 @@ mpd_response_next(struct mpd_connection *connection)
 		pair = mpd_recv_pair(connection);
 		if (pair != NULL)
 			mpd_return_pair(connection, pair);
+		else if (mpd_error_is_defined(&connection->error))
+			return false;
 	}
 
 	connection->discrete_finished = false;
 	return true;
-}
-
-int
-mpd_recv_song_id(struct mpd_connection *connection)
-{
-	struct mpd_pair *pair;
-	int id = -1;
-
-	pair = mpd_recv_pair_named(connection, "Id");
-	if (pair != NULL) {
-		id = atoi(pair->value);
-		mpd_return_pair(connection, pair);
-	}
-
-	return id;
-}
-
-int
-mpd_recv_update_id(struct mpd_connection *connection)
-{
-	struct mpd_pair *pair;
-	int ret = 0;
-
-	pair = mpd_recv_pair_named(connection, "updating_db");
-	if (pair != NULL) {
-		ret = atoi(pair->value);
-		mpd_return_pair(connection, pair);
-	}
-
-	return ret;
-}
-
-char *
-mpd_recv_command_name(struct mpd_connection *connection)
-{
-	return mpd_recv_value_named(connection, "command");
-}
-
-char *
-mpd_recv_handler(struct mpd_connection *connection)
-{
-	return mpd_recv_value_named(connection, "handler");
-}
-
-char *
-mpd_recv_tag_type_name(struct mpd_connection *connection)
-{
-	return mpd_recv_value_named(connection, "tagtype");
 }

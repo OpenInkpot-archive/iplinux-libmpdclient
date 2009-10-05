@@ -72,7 +72,7 @@ mpd_socket_global_init(struct mpd_error_info *error)
 	if ((WSAStartup(MAKEWORD(2, 2), &wsaData)) != 0 ||
 			LOBYTE(wsaData.wVersion) != 2 ||
 			HIBYTE(wsaData.wVersion) != 2 ) {
-		mpd_error_code(error, MPD_ERROR_SYSTEM);
+		mpd_error_system(error, 0);
 		mpd_error_message(error,
 				  "Could not find usable WinSock DLL");
 		return false;
@@ -85,13 +85,13 @@ mpd_socket_global_init(struct mpd_error_info *error)
 
 #ifdef WIN32
 
-static int do_connect_fail(struct mpd_socket *s,
+static int do_connect_fail(int fd,
                            const struct sockaddr *serv_addr, int addrlen)
 {
-	int iMode = 1; /* 0 = blocking, else non-blocking */
-	if (connect(s->fd, serv_addr, addrlen) == SOCKET_ERROR)
+	u_long iMode = 1; /* 0 = blocking, else non-blocking */
+	if (connect(fd, serv_addr, addrlen) == SOCKET_ERROR)
 		return 1;
-	ioctlsocket(s->fd, FIONBIO, (u_long FAR*) &iMode);
+	ioctlsocket(fd, FIONBIO, &iMode);
 	return 0;
 }
 
@@ -114,12 +114,10 @@ static int do_connect_fail(int fd,
  * Wait for the socket to become readable.
  */
 static int
-mpd_socket_wait(int fd, struct timeval *tv)
+mpd_socket_wait(unsigned fd, struct timeval *tv)
 {
 	fd_set fds;
 	int ret;
-
-	assert(fd >= 0);
 
 	while (1) {
 		FD_ZERO(&fds);
@@ -161,7 +159,7 @@ mpd_socket_wait_connected(int fd, struct timeval *tv)
 }
 
 int
-mpd_socket_connect(const char *host, int port, const struct timeval *tv0,
+mpd_socket_connect(const char *host, unsigned port, const struct timeval *tv0,
 		   struct mpd_error_info *error)
 {
 	struct timeval tv = *tv0;
@@ -171,8 +169,8 @@ mpd_socket_connect(const char *host, int port, const struct timeval *tv0,
 
 	resolver = resolver_new(host, port);
 	if (resolver == NULL) {
-		mpd_error_code(error, MPD_ERROR_UNKHOST);
-		mpd_error_printf(error, "host \"%s\" not found", host);
+		mpd_error_code(error, MPD_ERROR_RESOLVER);
+		mpd_error_message(error, "Failed to resolve host name");
 		return -1;
 	}
 
@@ -182,20 +180,14 @@ mpd_socket_connect(const char *host, int port, const struct timeval *tv0,
 		fd = socket(address->family, SOCK_STREAM, address->protocol);
 		if (fd < 0) {
 			mpd_error_clear(error);
-			mpd_error_code(error, MPD_ERROR_SYSTEM);
-			mpd_error_printf(error,
-					 "problems creating socket: %s",
-					 strerror(errno));
+			mpd_error_errno(error);
 			continue;
 		}
 
 		ret = do_connect_fail(fd, address->addr, address->addrlen);
 		if (ret != 0) {
 			mpd_error_clear(error);
-			mpd_error_code(error, MPD_ERROR_CONNPORT);
-			mpd_error_printf(error,
-					 "problems connecting to \"%s\" on port %i: %s",
-					 host, port, strerror(errno));
+			mpd_error_errno(error);
 
 			mpd_socket_close(fd);
 			continue;
@@ -210,16 +202,11 @@ mpd_socket_connect(const char *host, int port, const struct timeval *tv0,
 
 		if (ret == 0) {
 			mpd_error_clear(error);
-			mpd_error_code(error, MPD_ERROR_NORESPONSE);
-			mpd_error_printf(error,
-					 "timeout in attempting to get a response from \"%s\" on port %i",
-					 host, port);
+			mpd_error_code(error, MPD_ERROR_TIMEOUT);
+			mpd_error_message(error, "Timeout while connecting");
 		} else if (ret < 0) {
 			mpd_error_clear(error);
-			mpd_error_code(error, MPD_ERROR_CONNPORT);
-			mpd_error_printf(error,
-					 "problems connecting to \"%s\" on port %i: %s",
-					 host, port, strerror(-ret));
+			mpd_error_errno(error);
 		}
 
 		mpd_socket_close(fd);

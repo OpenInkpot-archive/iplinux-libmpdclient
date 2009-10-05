@@ -73,26 +73,22 @@
 }
 
 #define CHECK_CONNECTION(conn) \
-	if (mpd_get_error(conn) != MPD_ERROR_SUCCESS) { \
-		LOG_ERROR("%s", mpd_get_error_message(conn)); \
+	if (mpd_connection_get_error(conn) != MPD_ERROR_SUCCESS) { \
+		LOG_ERROR("%s", mpd_connection_get_error_message(conn)); \
 		return -1; \
 	}
 
 static int
 test_new_connection(struct mpd_connection **conn)
 {
-	const char *hostname = getenv("MPD_HOST");
-	const char *port = getenv("MPD_PORT");
+	*conn = mpd_connection_new(NULL, 0, 30000);
+	if (*conn == NULL) {
+		LOG_ERROR("%s", "Out of memory");
+		return -1;
+	}
 
-	if (hostname == NULL)
-		hostname = "localhost";
-	if (port == NULL)
-		port = "6600";
-
-	*conn = mpd_connection_new(hostname, atoi(port), 10);
-
-	if (!*conn || mpd_get_error(*conn) != MPD_ERROR_SUCCESS) {
-		LOG_ERROR("%s", mpd_get_error_message(*conn));
+	if (mpd_connection_get_error(*conn) != MPD_ERROR_SUCCESS) {
+		LOG_ERROR("%s", mpd_connection_get_error_message(*conn));
 		mpd_connection_free(*conn);
 		*conn = NULL;
 		return -1;
@@ -105,8 +101,9 @@ test_version(struct mpd_connection *conn)
 {
 	int i, total = -1;
 	for (i=0; i<3; ++i) {
-		LOG_INFO("version[%i]: %i", i, mpd_get_server_version(conn)[i]);
-		total += mpd_get_server_version(conn)[i];
+		LOG_INFO("version[%i]: %i", i,
+			 mpd_connection_get_server_version(conn)[i]);
+		total += mpd_connection_get_server_version(conn)[i];
 	}
 	/* Check if at least one of the three number is positive */
 	return total;
@@ -115,23 +112,30 @@ test_version(struct mpd_connection *conn)
 static void
 print_status(struct mpd_status *status)
 {
+	const struct mpd_audio_format *audio_format;
+
 	LOG_INFO("volume: %i", mpd_status_get_volume(status));
 	LOG_INFO("repeat: %i", mpd_status_get_repeat(status));
 	LOG_INFO("single: %i", mpd_status_get_single(status));
 	LOG_INFO("consume: %i", mpd_status_get_consume(status));
 	LOG_INFO("random: %i", mpd_status_get_random(status));
-	LOG_INFO("playlist: %lli", mpd_status_get_playlist(status));
-	LOG_INFO("playlistLength: %i", mpd_status_get_playlist_length(status));
+	LOG_INFO("queue version: %u", mpd_status_get_queue_version(status));
+	LOG_INFO("queue length: %i", mpd_status_get_queue_length(status));
 
 	if (mpd_status_get_state(status) == MPD_STATE_PLAY ||
 	    mpd_status_get_state(status) == MPD_STATE_PAUSE) {
-		LOG_INFO("song: %i", mpd_status_get_song(status));
+		LOG_INFO("song: %i", mpd_status_get_song_pos(status));
 		LOG_INFO("elaspedTime: %i", mpd_status_get_elapsed_time(status));
+		LOG_INFO("elasped_ms: %u\n", mpd_status_get_elapsed_ms(status));
 		LOG_INFO("totalTime: %i", mpd_status_get_total_time(status));
-		LOG_INFO("bitRate: %i", mpd_status_get_bit_rate(status));
-		LOG_INFO("sampleRate: %i", mpd_status_get_sample_rate(status));
-		LOG_INFO("bits: %i", mpd_status_get_bits(status));
-		LOG_INFO("channels: %i", mpd_status_get_channels(status));
+		LOG_INFO("bitRate: %i", mpd_status_get_kbit_rate(status));
+	}
+
+	audio_format = mpd_status_get_audio_format(status);
+	if (audio_format != NULL) {
+		printf("sampleRate: %i\n", audio_format->sample_rate);
+		printf("bits: %i\n", audio_format->bits);
+		printf("channels: %i\n", audio_format->channels);
 	}
 }
 
@@ -149,7 +153,7 @@ print_tag(const struct mpd_song *song, enum mpd_tag_type type,
 static void
 print_song(const struct mpd_song *song)
 {
-	print_tag(song, MPD_TAG_FILENAME, "file");
+	LOG_INFO("uri: %s\n", mpd_song_get_uri(song));
 	print_tag(song, MPD_TAG_ARTIST, "artist");
 	print_tag(song, MPD_TAG_ALBUM, "album");
 	print_tag(song, MPD_TAG_TITLE, "title");
@@ -157,11 +161,10 @@ print_song(const struct mpd_song *song)
 	print_tag(song, MPD_TAG_NAME, "name");
 	print_tag(song, MPD_TAG_DATE, "date");
 
-	if (mpd_song_get_time(song) != MPD_SONG_NO_TIME)
-		LOG_INFO("time: %i", mpd_song_get_time(song));
+	if (mpd_song_get_duration(song) > 0)
+		LOG_INFO("time: %i", mpd_song_get_duration(song));
 
-	if (mpd_song_get_pos(song) != MPD_SONG_NO_NUM)
-		LOG_INFO("pos: %i", mpd_song_get_pos(song));
+	LOG_INFO("pos: %u", mpd_song_get_pos(song));
 }
 
 static int
@@ -171,7 +174,7 @@ test_status(struct mpd_connection *conn)
 
 	status = mpd_run_status(conn);
 	if (!status) {
-		LOG_ERROR("%s", mpd_get_error_message(conn));
+		LOG_ERROR("%s", mpd_connection_get_error_message(conn));
 		return -1;
 	}
 
@@ -189,11 +192,7 @@ test_currentsong(struct mpd_connection *conn)
 {
 	struct mpd_song *song;
 
-	mpd_send_currentsong(conn);
-
-	CHECK_CONNECTION(conn);
-
-	song = mpd_recv_song(conn);
+	song = mpd_run_current_song(conn);
 	if (song != NULL) {
 		print_song(song);
 
@@ -214,18 +213,16 @@ test_list_status_currentsong(struct mpd_connection *conn)
 	const struct mpd_song *song;
 	struct mpd_entity *entity;
 
-	CHECK_CONNECTION(conn);
-
 	mpd_command_list_begin(conn, true);
 	mpd_send_status(conn);
-	mpd_send_currentsong(conn);
+	mpd_send_current_song(conn);
 	mpd_command_list_end(conn);
 
 	CHECK_CONNECTION(conn);
 
 	status = mpd_recv_status(conn);
 	if (!status) {
-		LOG_ERROR("%s", mpd_get_error_message(conn));
+		LOG_ERROR("%s", mpd_connection_get_error_message(conn));
 		return -1;
 	}
 	if (mpd_status_get_error(status)) {
@@ -234,8 +231,6 @@ test_list_status_currentsong(struct mpd_connection *conn)
 
 	print_status(status);
 	mpd_status_free(status);
-
-	CHECK_CONNECTION(conn);
 
 	mpd_response_next(conn);
 
@@ -266,13 +261,13 @@ test_lsinfo(struct mpd_connection *conn, const char *path)
 {
 	struct mpd_entity *entity;
 
-	mpd_send_lsinfo(conn, path);
+	mpd_send_list_meta(conn, path);
 	CHECK_CONNECTION(conn);
 
 	while ((entity = mpd_recv_entity(conn)) != NULL) {
 		const struct mpd_song *song;
 		const struct mpd_directory *dir;
-		const struct mpd_stored_playlist *pl;
+		const struct mpd_playlist *pl;
 
 		switch (mpd_entity_get_type(entity)) {
 		case MPD_ENTITY_TYPE_UNKNOWN:
@@ -289,9 +284,9 @@ test_lsinfo(struct mpd_connection *conn, const char *path)
 			printf("directory: %s\n", mpd_directory_get_path(dir));
 			break;
 
-		case MPD_ENTITY_TYPE_PLAYLISTFILE:
-			pl = mpd_entity_get_stored_playlist(entity);
-			LOG_INFO("playlist: %s", mpd_stored_playlist_get_path(pl));
+		case MPD_ENTITY_TYPE_PLAYLIST:
+			pl = mpd_entity_get_playlist(entity);
+			LOG_INFO("playlist: %s", mpd_playlist_get_path(pl));
 			break;
 		}
 
@@ -307,7 +302,7 @@ test_lsinfo(struct mpd_connection *conn, const char *path)
 static int
 test_list_artists(struct mpd_connection *conn)
 {
-	char *artist;
+	struct mpd_pair *pair;
 	int first = 1;
 
         mpd_search_db_tags(conn, MPD_TAG_ARTIST);
@@ -315,14 +310,14 @@ test_list_artists(struct mpd_connection *conn)
 	CHECK_CONNECTION(conn);
 
 	LOG_INFO("%s: ", "Artists list");
-	while ((artist = mpd_get_next_tag(conn, MPD_TAG_ARTIST))) {
+	while ((pair = mpd_recv_pair_tag(conn, MPD_TAG_ARTIST)) != NULL) {
 		if (first) {
-			printf("    %s", artist);
+			printf("    %s", pair->value);
 			first = 0;
 		} else {
-			printf(", %s", artist);
+			printf(", %s", pair->value);
 		}
-		free(artist);
+		mpd_return_pair(conn, pair);
 	}
 	printf("\n");
 

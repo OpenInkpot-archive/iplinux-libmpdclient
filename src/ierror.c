@@ -94,6 +94,26 @@ mpd_error_errno(struct mpd_error_info *error)
 {
 	assert(error != NULL);
 
-	mpd_error_code(error, MPD_ERROR_SYSTEM);
+	mpd_error_system(error, errno);
 	mpd_error_message(error, strerror(errno));
+}
+
+bool
+mpd_error_copy(struct mpd_error_info *dest, const struct mpd_error_info *src)
+{
+	assert(dest != NULL);
+	assert(src != NULL);
+
+	dest->code = src->code;
+	if (src->code == MPD_ERROR_SUCCESS)
+		return true;
+
+	if (src->code == MPD_ERROR_SERVER) {
+		dest->server = src->server;
+		dest->at = src->at;
+	} else if (src->code == MPD_ERROR_SYSTEM)
+		dest->system = src->system;
+
+	dest->message = src->message != NULL ? strdup(src->message) : NULL;
+	return false;
 }

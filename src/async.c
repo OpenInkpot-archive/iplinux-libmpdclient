@@ -26,7 +26,7 @@
    SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-#include <mpd/async.h>
+#include "iasync.h"
 #include "buffer.h"
 #include "ierror.h"
 #include "quote.h"
@@ -60,8 +60,6 @@ closesocket(int fd)
 struct mpd_async {
 	int fd;
 
-	bool alive;
-
 	struct mpd_error_info error;
 
 	struct mpd_buffer input;
@@ -81,7 +79,6 @@ mpd_async_new(int fd)
 		return NULL;
 
 	async->fd = fd;
-	async->alive = true;
 	mpd_error_init(&async->error);
 
 	mpd_buffer_init(&async->input);
@@ -100,19 +97,10 @@ mpd_async_free(struct mpd_async *async)
 	free(async);
 }
 
-bool
-mpd_async_is_alive(const struct mpd_async *async)
-{
-	assert(async != NULL);
-
-	return async->alive;
-}
-
 enum mpd_error
 mpd_async_get_error(const struct mpd_async *async)
 {
 	assert(async != NULL);
-	assert(!async->alive);
 
 	return async->error.code;
 }
@@ -121,13 +109,30 @@ const char *
 mpd_async_get_error_message(const struct mpd_async *async)
 {
 	assert(async != NULL);
-	assert(!async->alive);
 
-	return async->error.message;
+	return mpd_error_get_message(&async->error);
 }
 
 int
-mpd_async_fd(const struct mpd_async *async)
+mpd_async_get_system_error(const struct mpd_async *async)
+{
+	assert(async != NULL);
+	assert(async->error.code == MPD_ERROR_SYSTEM);
+
+	return async->error.system;
+}
+
+bool
+mpd_async_copy_error(const struct mpd_async *async,
+		     struct mpd_error_info *dest)
+{
+	assert(async != NULL);
+
+	return mpd_error_copy(dest, &async->error);
+}
+
+int
+mpd_async_get_fd(const struct mpd_async *async)
 {
 	assert(async != NULL);
 	assert(async->fd >= 0);
@@ -135,14 +140,14 @@ mpd_async_fd(const struct mpd_async *async)
 	return async->fd;
 }
 
-enum mpd_async_events
+enum mpd_async_event
 mpd_async_events(const struct mpd_async *async)
 {
-	enum mpd_async_events events;
+	enum mpd_async_event events;
 
 	assert(async != NULL);
 
-	if (!async->alive)
+	if (mpd_error_is_defined(&async->error))
 		return 0;
 
 	/* always listen to hangups and errors */
@@ -179,7 +184,7 @@ mpd_async_read(struct mpd_async *async)
 
 	assert(async != NULL);
 	assert(async->fd >= 0);
-	assert(async->alive);
+	assert(!mpd_error_is_defined(&async->error));
 
 	room = mpd_buffer_room(&async->input);
 	if (room == 0)
@@ -194,15 +199,13 @@ mpd_async_read(struct mpd_async *async)
 			return true;
 
 		mpd_error_errno(&async->error);
-		async->alive = false;
 		return false;
 	}
 
 	if (nbytes == 0) {
-		mpd_error_code(&async->error, MPD_ERROR_CONNCLOSED);
+		mpd_error_code(&async->error, MPD_ERROR_CLOSED);
 		mpd_error_message(&async->error,
 				  "Connection closed by the server");
-		async->alive = false;
 		return false;
 	}
 
@@ -218,7 +221,7 @@ mpd_async_write(struct mpd_async *async)
 
 	assert(async != NULL);
 	assert(async->fd >= 0);
-	assert(async->alive);
+	assert(!mpd_error_is_defined(&async->error));
 
 	size = mpd_buffer_size(&async->output);
 	if (size == 0)
@@ -233,7 +236,6 @@ mpd_async_write(struct mpd_async *async)
 			return true;
 
 		mpd_error_errno(&async->error);
-		async->alive = false;
 		return false;
 	}
 
@@ -242,19 +244,18 @@ mpd_async_write(struct mpd_async *async)
 }
 
 bool
-mpd_async_io(struct mpd_async *async, unsigned events)
+mpd_async_io(struct mpd_async *async, enum mpd_async_event events)
 {
 	bool success;
 
 	assert(async != NULL);
 
-	if (!async->alive)
+	if (mpd_error_is_defined(&async->error))
 		return false;
 
 	if ((events & (MPD_ASYNC_EVENT_HUP|MPD_ASYNC_EVENT_ERROR)) != 0) {
-		mpd_error_code(&async->error, MPD_ERROR_CONNCLOSED);
+		mpd_error_code(&async->error, MPD_ERROR_CLOSED);
 		mpd_error_message(&async->error, "Socket connection aborted");
-		async->alive = false;
 		return false;
 	}
 
@@ -264,7 +265,7 @@ mpd_async_io(struct mpd_async *async, unsigned events)
 			return false;
 	}
 
-	assert(async->alive);
+	assert(!mpd_error_is_defined(&async->error));
 
 	if (events & MPD_ASYNC_EVENT_WRITE) {
 		success = mpd_async_write(async);
@@ -272,7 +273,7 @@ mpd_async_io(struct mpd_async *async, unsigned events)
 			return false;
 	}
 
-	assert(async->alive);
+	assert(!mpd_error_is_defined(&async->error));
 
 	return true;
 }
@@ -288,7 +289,7 @@ mpd_async_send_command_v(struct mpd_async *async, const char *command,
 	assert(async != NULL);
 	assert(command != NULL);
 
-	if (!async->alive)
+	if (mpd_error_is_defined(&async->error))
 		return false;
 
 	room = mpd_buffer_room(&async->output);
@@ -358,7 +359,7 @@ mpd_async_recv_line(struct mpd_async *async)
 
 	size = mpd_buffer_size(&async->input);
 	if (size == 0)
-		return false;
+		return NULL;
 
 	src = mpd_buffer_read(&async->input);
 	assert(src != NULL);
@@ -368,13 +369,12 @@ mpd_async_recv_line(struct mpd_async *async)
 		if (mpd_buffer_full(&async->input)) {
 			/* .. but the buffer is full - line is too
 			   long, abort connection and bail out */
-			mpd_error_code(&async->error, MPD_ERROR_BUFFEROVERRUN);
+			mpd_error_code(&async->error, MPD_ERROR_MALFORMED);
 			mpd_error_message(&async->error,
 					  "Response line too large");
-			async->alive = false;
 		}
 
-		return false;
+		return NULL;
 	}
 
 	*newline = 0;

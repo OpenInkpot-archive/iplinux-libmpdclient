@@ -26,38 +26,22 @@
    SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-#ifndef MPD_CPOS_H
-#define MPD_CPOS_H
+#ifndef MPD_RUN_H
+#define MPD_RUN_H
 
 #include <stdbool.h>
 
 struct mpd_connection;
 
 /**
- * Information about a moved song in the playlist.  This is one item
- * in the "plchangesposid" response.
+ * Check if it's possible to run a single command via mpd_run_X().
+ * This is not possible if the connection is currently sending a
+ * command list.
+ *
+ * @return true if that's possible, and false if not (error set
+ * accordingly)
  */
-struct mpd_cpos {
-	/**
-	 * The position in the playlist.
-	 */
-	unsigned position;
-
-	/**
-	 * The id of the song.
-	 */
-	unsigned id;
-};
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 bool
-mpd_recv_cpos(struct mpd_connection *connection, struct mpd_cpos *cpos);
-
-#ifdef __cplusplus
-}
-#endif
+mpd_run_check(struct mpd_connection *connection);
 
 #endif

@@ -26,6 +26,13 @@
    SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+/*! \file
+ * \brief MPD client library
+ *
+ * Do not include this header directly.  Use mpd/client.h or
+ * mpd/async.h instead.
+ */
+
 #ifndef MPD_ERROR_H
 #define MPD_ERROR_H
 
@@ -38,44 +45,32 @@ enum mpd_error {
 
 	/** a function was called with an unrecognized or invalid
 	    argument */
-	MPD_ERROR_ARG,
+	MPD_ERROR_ARGUMENT,
 
 	/** a function was called which is not available in the
 	    current state of libmpdclient */
 	MPD_ERROR_STATE,
 
 	/** timeout trying to talk to mpd */
-	MPD_ERROR_TIMEOUT = 10,
+	MPD_ERROR_TIMEOUT,
 
 	/** system error */
 	MPD_ERROR_SYSTEM,
 
 	/** unknown host */
-	MPD_ERROR_UNKHOST,
-
-	/** problems connecting to port on host */
-	MPD_ERROR_CONNPORT,
-
-	/** mpd not running on port at host */
-	MPD_ERROR_NOTMPD,
-
-	/** no response on attempting to connect */
-	MPD_ERROR_NORESPONSE,
-
-	/** error sending command */
-	MPD_ERROR_SENDING,
+	MPD_ERROR_RESOLVER,
 
 	/** malformed response received from MPD */
 	MPD_ERROR_MALFORMED,
 
 	/** connection closed by mpd */
-	MPD_ERROR_CONNCLOSED,
+	MPD_ERROR_CLOSED,
 
-	/** ACK returned! */
-	MPD_ERROR_ACK,
-
-	/** Buffer was overrun! */
-	MPD_ERROR_BUFFEROVERRUN,
+	/**
+	 * The server has returned an error code, which can be queried
+	 * with mpd_connection_get_server_error().
+	 */
+	MPD_ERROR_SERVER,
 };
 
 #endif

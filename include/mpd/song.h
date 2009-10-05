@@ -30,17 +30,20 @@
    SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+/*! \file
+ * \brief MPD client library
+ *
+ * Do not include this header directly.  Use mpd/client.h instead.
+ */
+
 #ifndef MPD_SONG_H
 #define MPD_SONG_H
 
 #include <mpd/tag.h>
+#include <mpd/compiler.h>
 
 #include <stdbool.h>
 #include <time.h>
-
-#define MPD_SONG_NO_TIME	-1
-#define MPD_SONG_NO_NUM		-1
-#define MPD_SONG_NO_ID		-1
 
 struct mpd_pair;
 struct mpd_connection;
@@ -59,16 +62,6 @@ extern "C" {
 #endif
 
 /**
- * Allocate a new #mpd_song object.  Use mpd_song_free() to release
- * it when you don't need it anymore.
- *
- * @param uri the song URI
- * @returns the new object, or NULL if out of memory
- */
-struct mpd_song *
-mpd_song_new(const char *uri);
-
-/**
  * Free memory allocated by the #mpd_song object.
  */
 void mpd_song_free(struct mpd_song *song);
@@ -78,100 +71,75 @@ void mpd_song_free(struct mpd_song *song);
  *
  * @returns the copy, or NULL if out of memory
  */
+mpd_malloc
 struct mpd_song *
 mpd_song_dup(const struct mpd_song *song);
 
 /**
- * Returns the URI of the song.  It always returns a value, because a
- * song cannot exist without an URI.
+ * Returns the URI of the song.  This is either a path relative to the
+ * MPD music directory (without leading slash), or an URL with a
+ * scheme, e.g. a HTTP URL for a radio stream.
  */
+mpd_pure
 const char *
 mpd_song_get_uri(const struct mpd_song *song);
-
-/**
- * Adds a tag value to the song.
- *
- * @return true on success, false if the tag is not supported or if no
- * memory could be allocated
- */
-bool
-mpd_song_add_tag(struct mpd_song *song,
-		 enum mpd_tag_type type, const char *value);
-
-/**
- * Removes all values of the specified tag.
- */
-void
-mpd_song_clear_tag(struct mpd_song *song, enum mpd_tag_type type);
 
 /**
  * Queries a tag value.
  *
  * @param song the song object
- * @param type the tag type; MPD_TAG_ANY and MPD_TAG_COUNT are invalid
- * values
+ * @param type the tag type
  * @param idx pass 0 to get the first value for this tag type.  This
  * argument may be used to iterate all values, until this function
  * returns NULL
  * @return the tag value, or NULL if this tag type (or this index)
  * does not exist
  */
+mpd_pure
 const char *
 mpd_song_get_tag(const struct mpd_song *song,
 		 enum mpd_tag_type type, unsigned idx);
 
 /**
- * Sets the song duration in seconds.
+ * Returns the duration of this song in seconds.  0 means the duration
+ * is unknown.
  */
-void
-mpd_song_set_time(struct mpd_song *song, int t);
-
-/**
- * Returns the duration of this song in seconds.  #MPD_SONG_NO_TIME is
- * a special value for "unknown".
- */
-int
-mpd_song_get_time(const struct mpd_song *song);
-
-/**
- * Sets the POSIX UTC time stamp of the last modification.
- */
-void
-mpd_song_set_last_modified(struct mpd_song *song, time_t mtime);
+mpd_pure
+unsigned
+mpd_song_get_duration(const struct mpd_song *song);
 
 /**
  * @return the POSIX UTC time stamp of the last modification, or 0 if
  * that is unknown
  */
+mpd_pure
 time_t
 mpd_song_get_last_modified(const struct mpd_song *song);
 
 /**
- * Sets the position within the playlist.  This value is not used for
- * songs which are not in the playlist.
+ * Sets the position within the queue.  This value is not used for
+ * songs which are not in the queue.
+ *
+ * This function is useful when applying the values returned by
+ * mpd_recv_queue_change_brief().
  */
 void
-mpd_song_set_pos(struct mpd_song *song, int pos);
+mpd_song_set_pos(struct mpd_song *song, unsigned pos);
 
 /**
- * Returns the position of this song in the playlist.
- * #MPD_SONG_NO_NUM is a special value for "unknown".
+ * Returns the position of this song in the queue.  The value is
+ * undefined if you did not obtain this song from the queue.
  */
-int
+mpd_pure
+unsigned
 mpd_song_get_pos(const struct mpd_song *song);
 
 /**
- * Sets the id within the playlist.  This value is not used for songs
- * which are not in the playlist.
+ * Returns the id of this song in the playlist.  The value is
+ * undefined if you did not obtain this song from the queue.
  */
-void
-mpd_song_set_id(struct mpd_song *song, int id);
-
-/**
- * Returns the id of this song in the playlist.  #MPD_SONG_NO_ID is a
- * special value for "unknown".
- */
-int
+mpd_pure
+unsigned
 mpd_song_get_id(const struct mpd_song *song);
 
 /**
@@ -181,6 +149,7 @@ mpd_song_get_id(const struct mpd_song *song);
  * @return the new #mpd_entity object, or NULL on error (out of
  * memory, or pair name is not "file")
  */
+mpd_malloc
 struct mpd_song *
 mpd_song_begin(const struct mpd_pair *pair);
 
@@ -201,6 +170,7 @@ mpd_song_feed(struct mpd_song *song, const struct mpd_pair *pair);
  * @return a #mpd_song object, or NULL on error or if the song list is
  * finished
  */
+mpd_malloc
 struct mpd_song *
 mpd_recv_song(struct mpd_connection *connection);
 

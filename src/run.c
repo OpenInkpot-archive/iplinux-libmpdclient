@@ -26,8 +26,7 @@
    SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-#include <mpd/run.h>
-#include <mpd/command.h>
+#include "run.h"
 #include <mpd/response.h>
 #include <mpd/status.h>
 #include "internal.h"
@@ -35,8 +34,8 @@
 /**
  * Checks whether it is possible to run a command now.
  */
-static bool
-run_check(struct mpd_connection *connection)
+bool
+mpd_run_check(struct mpd_connection *connection)
 {
 	assert(connection != NULL);
 
@@ -51,43 +50,4 @@ run_check(struct mpd_connection *connection)
 	}
 
 	return true;
-}
-
-int
-mpd_run_addid(struct mpd_connection *connection, const char *file)
-{
-	int id;
-
-	if (!run_check(connection))
-		return false;
-
-	if (!mpd_send_addid(connection, file))
-		return -1;
-
-	id = mpd_recv_song_id(connection);
-
-	if (!mpd_response_finish(connection))
-		id = -1;
-
-	return id;
-}
-
-struct mpd_status *
-mpd_run_status(struct mpd_connection *connection)
-{
-	struct mpd_status *status;
-
-	if (!run_check(connection) || !mpd_send_status(connection))
-		return NULL;
-
-	status = mpd_recv_status(connection);
-	if (status == NULL)
-		return NULL;
-
-	if (!mpd_response_finish(connection)) {
-		mpd_status_free(status);
-		return NULL;
-	}
-
-	return status;
 }

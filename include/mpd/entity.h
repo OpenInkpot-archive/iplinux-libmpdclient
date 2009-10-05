@@ -30,12 +30,19 @@
    SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+/*! \file
+ * \brief MPD client library
+ *
+ * Do not include this header directly.  Use mpd/client.h instead.
+ */
+
 #ifndef MPD_ENTITY_H
 #define MPD_ENTITY_H
 
 #include <mpd/song.h>
 #include <mpd/directory.h>
 #include <mpd/client.h>
+#include <mpd/compiler.h>
 
 struct mpd_pair;
 
@@ -60,9 +67,9 @@ enum mpd_entity_type {
 	MPD_ENTITY_TYPE_SONG,
 
 	/**
-	 * A stored playlist (#mpd_stored_playlist).
+	 * A stored playlist (#mpd_playlist).
 	 */
-	MPD_ENTITY_TYPE_PLAYLISTFILE,
+	MPD_ENTITY_TYPE_PLAYLIST,
 };
 
 /**
@@ -86,6 +93,7 @@ mpd_entity_free(struct mpd_entity *entity);
 /**
  * @return the type of this entity.
  */
+mpd_pure
 enum mpd_entity_type
 mpd_entity_get_type(const struct mpd_entity *entity);
 
@@ -96,6 +104,7 @@ mpd_entity_get_type(const struct mpd_entity *entity);
  *
  * @return the directory object
  */
+mpd_pure
 const struct mpd_directory *
 mpd_entity_get_directory(const struct mpd_entity *entity);
 
@@ -106,18 +115,20 @@ mpd_entity_get_directory(const struct mpd_entity *entity);
  *
  * @return the song object
  */
+mpd_pure
 const struct mpd_song *
 mpd_entity_get_song(const struct mpd_entity *entity);
 
 /**
- * Obtains a pointer to the #mpd_stored_playlist object enclosed by
+ * Obtains a pointer to the #mpd_playlist object enclosed by
  * this #mpd_entity.  Calling this function is only allowed of
- * mpd_entity_get_type() has returned #MPD_ENTITY_TYPE_PLAYLISTFILE.
+ * mpd_entity_get_type() has returned #MPD_ENTITY_TYPE_PLAYLIST.
  *
  * @return the directory object
  */
-const struct mpd_stored_playlist *
-mpd_entity_get_stored_playlist(const struct mpd_entity *entity);
+mpd_pure
+const struct mpd_playlist *
+mpd_entity_get_playlist(const struct mpd_entity *entity);
 
 /**
  * Begins parsing a new entity.
@@ -125,6 +136,7 @@ mpd_entity_get_stored_playlist(const struct mpd_entity *entity);
  * @param pair the first pair in this entity
  * @return the new #mpd_entity object, or NULL on error (out of memory)
  */
+mpd_malloc
 struct mpd_entity *
 mpd_entity_begin(const struct mpd_pair *pair);
 
@@ -145,6 +157,7 @@ mpd_entity_feed(struct mpd_entity *entity, const struct mpd_pair *pair);
  * @return an entity object, or NULL on error or if the entity list is
  * finished
  */
+mpd_malloc
 struct mpd_entity *
 mpd_recv_entity(struct mpd_connection *connection);
 

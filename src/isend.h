@@ -26,36 +26,50 @@
    SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-#include <mpd/cpos.h>
-#include <mpd/pair.h>
-#include <mpd/connection.h>
-#include <mpd/recv.h>
-#include "internal.h"
+#ifndef MPD_ISEND_H
+#define MPD_ISEND_H
 
-#include <stdlib.h>
-#include <string.h>
+#include <stdbool.h>
+
+struct mpd_connection;
+
+/**
+ * Sends a command without arguments to the server, but does not
+ * update the "receiving" flag nor the "listOks" counter.  This is
+ * used internally by the command_list functions.
+ */
+bool
+mpd_send_command2(struct mpd_connection *connection, const char *command);
 
 bool
-mpd_recv_cpos(struct mpd_connection *connection, struct mpd_cpos *cpos)
-{
-	struct mpd_pair *pair;
+mpd_send_int_command(struct mpd_connection *connection, const char *command,
+		     int arg);
 
-	pair = mpd_recv_pair_named(connection, "cpos");
-	if (pair == NULL)
-		return false;
+bool
+mpd_send_int2_command(struct mpd_connection *connection, const char *command,
+		      int arg1, int arg2);
 
-	cpos->position = atoi(pair->value);
-	mpd_return_pair(connection, pair);
+bool
+mpd_send_s_u_command(struct mpd_connection *connection, const char *command,
+		     const char *arg1, unsigned arg2);
 
-	while ((pair = mpd_recv_pair(connection)) != NULL) {
-		if (strcmp(pair->name, "Id") == 0) {
-			cpos->id = atoi(pair->value);
-			mpd_return_pair(connection, pair);
-		} else {
-			mpd_enqueue_pair(connection, pair);
-			break;
-		}
-	}
+bool
+mpd_send_range_command(struct mpd_connection *connection, const char *command,
+		       unsigned arg1, unsigned arg2);
 
-	return !mpd_error_is_defined(&connection->error);
-}
+bool
+mpd_send_range_u_command(struct mpd_connection *connection,
+			 const char *command,
+			 unsigned start, unsigned end, unsigned arg2);
+
+bool
+mpd_send_ll_command(struct mpd_connection *connection, const char *command,
+		    long long arg);
+
+/**
+ * Sends all pending data from the output buffer to MPD.
+ */
+bool
+mpd_flush(struct mpd_connection *connection);
+
+#endif

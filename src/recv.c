@@ -30,6 +30,7 @@
 #include <mpd/pair.h>
 #include <mpd/parser.h>
 #include "internal.h"
+#include "iasync.h"
 #include "sync.h"
 
 #include <string.h>
@@ -76,10 +77,13 @@ mpd_recv_pair(struct mpd_connection *connection)
 		return NULL;
 	}
 
-	line = mpd_sync_recv_line(connection->async, &connection->timeout);
+	line = mpd_sync_recv_line(connection->async,
+				  mpd_connection_timeout(connection));
 	if (line == NULL) {
 		connection->receiving = false;
 		connection->sending_command_list = false;
+
+		mpd_connection_sync_error(connection);
 		return NULL;
 	}
 
@@ -87,8 +91,9 @@ mpd_recv_pair(struct mpd_connection *connection)
 	switch (result) {
 	case MPD_PARSER_MALFORMED:
 		mpd_error_code(&connection->error, MPD_ERROR_MALFORMED);
-		mpd_error_printf(&connection->error,
-				 "Failed to parse MPD response");
+		mpd_error_message(&connection->error,
+				  "Failed to parse MPD response");
+		connection->receiving = false;
 		return NULL;
 
 	case MPD_PARSER_SUCCESS:
@@ -123,9 +128,9 @@ mpd_recv_pair(struct mpd_connection *connection)
 	case MPD_PARSER_ERROR:
 		connection->receiving = false;
 		connection->sending_command_list = false;
-		mpd_error_ack(&connection->error,
-			      mpd_parser_get_ack(connection->parser),
-			      mpd_parser_get_at(connection->parser));
+		mpd_error_server(&connection->error,
+				 mpd_parser_get_server_error(connection->parser),
+				 mpd_parser_get_at(connection->parser));
 		msg = mpd_parser_get_message(connection->parser);
 		if (msg == NULL)
 			msg = "Unspecified MPD error";
@@ -161,33 +166,9 @@ mpd_recv_pair_named(struct mpd_connection *connection, const char *name)
 	return NULL;
 }
 
-char *
-mpd_recv_value_named(struct mpd_connection *connection, const char *name)
-{
-	struct mpd_pair *pair;
-	char *value;
-
-	pair = mpd_recv_pair_named(connection, name);
-	if (pair == NULL)
-		return NULL;
-
-	value = strdup(pair->value);
-	mpd_return_pair(connection, pair);
-
-	if (value == NULL)
-		mpd_error_code(&connection->error, MPD_ERROR_OOM);
-
-	return value;
-}
-
 void
-mpd_value_free(char *value)
-{
-	free(value);
-}
-
-void
-mpd_return_pair(struct mpd_connection *connection, struct mpd_pair *pair)
+mpd_return_pair(struct mpd_connection *connection,
+		mpd_unused struct mpd_pair *pair)
 {
 	assert(connection != NULL);
 	assert(pair != NULL);

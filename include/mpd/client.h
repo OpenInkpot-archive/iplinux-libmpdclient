@@ -45,21 +45,27 @@
 #ifndef MPD_CLIENT_H
 #define MPD_CLIENT_H
 
+#include <mpd/audio_format.h>
+#include <mpd/capabilities.h>
 #include <mpd/connection.h>
-#include <mpd/command.h>
+#include <mpd/database.h>
 #include <mpd/directory.h>
 #include <mpd/entity.h>
+#include <mpd/idle.h>
 #include <mpd/list.h>
+#include <mpd/mixer.h>
 #include <mpd/output.h>
 #include <mpd/pair.h>
+#include <mpd/password.h>
+#include <mpd/player.h>
+#include <mpd/playlist.h>
+#include <mpd/queue.h>
 #include <mpd/recv.h>
 #include <mpd/response.h>
-#include <mpd/run.h>
 #include <mpd/search.h>
 #include <mpd/send.h>
 #include <mpd/song.h>
 #include <mpd/stats.h>
 #include <mpd/status.h>
-#include <mpd/stored_playlist.h>
 
 #endif

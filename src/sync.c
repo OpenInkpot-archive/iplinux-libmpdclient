@@ -36,6 +36,11 @@
 #include <unistd.h>
 #include <errno.h>
 
+#ifdef WIN32
+#include <ws2tcpip.h>
+#include <winsock.h>
+#endif
+
 static bool
 ignore_errno(int e)
 {
@@ -46,18 +51,18 @@ ignore_errno(int e)
 #endif
 }
 
-static enum mpd_async_events
+static enum mpd_async_event
 mpd_sync_poll(struct mpd_async *async, struct timeval *tv)
 {
-	int fd;
+	unsigned fd;
 	fd_set rfds, wfds, efds;
 	int ret;
-	enum mpd_async_events events;
+	enum mpd_async_event events;
 
-	if (!mpd_async_is_alive(async))
+	if (mpd_async_get_error(async) != MPD_ERROR_SUCCESS)
 		return 0;
 
-	fd = mpd_async_fd(async);
+	fd = mpd_async_get_fd(async);
 
 	while (1) {
 		events = mpd_async_events(async);
@@ -88,7 +93,7 @@ mpd_sync_poll(struct mpd_async *async, struct timeval *tv)
 			return events;
 		}
 
-		if (ret == 0 || ignore_errno(errno))
+		if (ret == 0 || !ignore_errno(errno))
 			return 0;
 	}
 }
@@ -96,7 +101,7 @@ mpd_sync_poll(struct mpd_async *async, struct timeval *tv)
 static bool
 mpd_sync_io(struct mpd_async *async, struct timeval *tv)
 {
-	enum mpd_async_events events = mpd_sync_poll(async, tv);
+	enum mpd_async_event events = mpd_sync_poll(async, tv);
 
 	if (events)
 		return mpd_async_io(async, events);
@@ -108,9 +113,15 @@ bool
 mpd_sync_send_command_v(struct mpd_async *async, const struct timeval *tv0,
 			const char *command, va_list args)
 {
-	struct timeval tv = *tv0;
+	struct timeval tv, *tvp;
 	va_list copy;
 	bool success;
+
+	if (tv0 != NULL) {
+		tv = *tv0;
+		tvp = &tv;
+	} else
+		tvp = NULL;
 
 	while (true) {
 		va_copy(copy, args);
@@ -120,7 +131,8 @@ mpd_sync_send_command_v(struct mpd_async *async, const struct timeval *tv0,
 		if (success)
 			return true;
 
-		if (!mpd_async_is_alive(async) || !mpd_sync_io(async, &tv))
+		if (mpd_async_get_error(async) != MPD_ERROR_SUCCESS ||
+		    !mpd_sync_io(async, tvp))
 			return false;
 	}
 }
@@ -139,18 +151,48 @@ mpd_sync_send_command(struct mpd_async *async, const struct timeval *tv,
 	return success;
 }
 
+bool
+mpd_sync_flush(struct mpd_async *async, const struct timeval *tv0)
+{
+	struct timeval tv, *tvp;
+
+	if (tv0 != NULL) {
+		tv = *tv0;
+		tvp = &tv;
+	} else
+		tvp = NULL;
+
+	while (true) {
+		enum mpd_async_event events = mpd_async_events(async);
+		if ((events & MPD_ASYNC_EVENT_WRITE) == 0)
+			/* no more pending writes */
+			return true;
+
+		if (mpd_async_get_error(async) != MPD_ERROR_SUCCESS ||
+		    !mpd_sync_io(async, tvp))
+			return false;
+	}
+}
+
 char *
 mpd_sync_recv_line(struct mpd_async *async, const struct timeval *tv0)
 {
-	struct timeval tv = *tv0;
+	struct timeval tv, *tvp;
 	char *line;
+
+	if (tv0 != NULL) {
+		tv = *tv0;
+		tvp = &tv;
+	} else
+		tvp = NULL;
 
 	while (true) {
 		line = mpd_async_recv_line(async);
 		if (line != NULL)
 			return line;
 
-		if (!mpd_async_is_alive(async) || !mpd_sync_io(async, &tv))
+		if (mpd_async_get_error(async) != MPD_ERROR_SUCCESS ||
+		    !mpd_sync_io(async, tvp))
 			return NULL;
 	}
 }
