@@ -1,3 +1,11 @@
+libmpdclient (2.0+2.1-git-20091006-ip4) asimov; urgency=low
+
+  * Upload new snapshot
+  * Conflict with old madaudio: we are not backward compatible, but soname
+    unchanged by upstream
+
+ -- Alexander V. Nikolaev <avn@daemon.hole.ru>  Tue, 06 Oct 2009 02:18:35 +0300
+
 libmpdclient (1.999+2.0-20090909-ip2) asimov; urgency=low
 
   * Update to new snapshot

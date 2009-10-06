@@ -11,6 +11,7 @@ Priority: optional
 Section: core
 Architecture: any
 Depends: ${shlibs:Depends}
+Conflicts: madaudio (< 0.2)
 Description: Simple client library for MPD
 
 Package: libmpdclient-dev
